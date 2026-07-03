@@ -14,7 +14,7 @@ Servidor MCP (Model Context Protocol) que expone el lenguaje [Bend](https://gith
 
 ## Instalación
 
-Requiere Python ≥3.10, Bend y HVM instalados.
+Requiere Python ≥3.10, y Bend/HVM instalados en el sistema.
 
 ```bash
 pip install -e .
@@ -33,6 +33,10 @@ Agregar al `claude_desktop_config.json`:
   }
 }
 ```
+
+## Ejemplo
+
+Carpeta `examples/` incluye `hello.bend` como programa de referencia.
 
 ## Licencia
 
