@@ -4,18 +4,23 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bend-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Servidor MCP que expone el lenguaje Bend (HVM2 / interaction combinators) a Claude Desktop u otros clientes MCP"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Astrid" }]
 dependencies = [
-    "mcp[cli]>=1.28.0",
+    "mcp[cli]>=1.28.0,<2",
 ]
 
 [project.scripts]
 bend-mcp = "bend_mcp.server:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["bend_mcp"]
