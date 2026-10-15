@@ -1,9 +1,12 @@
 # bend-mcp
 
 MCP (Model Context Protocol) server that exposes the
-[Bend](https://github.com/bendlang/bend) language (classic 0.2.x era,
-HVM2 / interaction combinators) to Claude Desktop, Claude Code, Cursor,
-and other MCP-compatible clients.
+[Bend](https://github.com/bendlang/bend/tree/d184863f03e7) language
+(classic 0.2.x era, HVM2 / interaction combinators) to Claude Desktop,
+Claude Code, Cursor, and other MCP-compatible clients.
+
+> Note: the HEAD of that repository currently describes "Bend 2", a
+> different language. The link points to the commit with the classic docs (2025-06).
 
 > Español: ver [README.md](README.md).
 
@@ -62,6 +65,18 @@ Add to `claude_desktop_config.json`:
 | `BEND_MCP_BEND_BIN` | `bend` | Bend binary |
 | `BEND_MCP_HVM_BIN` | `hvm` | HVM binary |
 | `BEND_MCP_TIMEOUT` | `60` | Default subprocess timeout (seconds) |
+| `BEND_MCP_MAX_TIMEOUT` | `300` | Maximum timeout (seconds) accepted by the tools |
+| `BEND_MCP_MAX_OUTPUT` | `65536` | Max characters of returned stdout/stderr (truncated) |
+| `BEND_MCP_MAX_CODE_BYTES` | `1000000` | Max code bytes accepted by `bend_write_program` |
+| `BEND_MCP_BENCH_BUDGET` | `600` | Total budget (seconds) for `bend_benchmark` |
+| `BEND_MCP_ENV_PASSTHROUGH` | empty | Extra comma-separated env vars to inherit into subprocesses (by default only an allowlist is inherited: PATH, HOME, etc.) |
+
+## Security notice
+
+Bend programs are arbitrary code. The workdir only sets the working
+directory; it is **not a sandbox**: programs run with the permissions of
+the user running the server. Do not expose the server to untrusted input
+without container/system limits.
 
 ## Tests
 

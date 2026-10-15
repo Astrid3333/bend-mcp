@@ -4,11 +4,18 @@ bend-mcp
 Servidor MCP (Model Context Protocol) que expone el lenguaje Bend
 (HigherOrderCO, corre sobre HVM2 / interaction combinators) como
 herramientas invocables desde Claude Desktop u otro cliente MCP.
+
+AVISO DE SEGURIDAD: los programas Bend son código arbitrario. El workdir
+solo fija el directorio de trabajo; NO es un sandbox. Los programas pueden
+usar las capacidades de IO de Bend/HVM con los permisos del usuario que
+ejecuta este servidor. No lo expongas a entradas no confiables sin
+contenedor/límites del sistema.
 """
 
 import os
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import time
@@ -17,62 +24,117 @@ from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 WORKDIR = Path(os.environ.get("BEND_MCP_WORKDIR", str(Path.home() / "bend-mcp-workspace"))).resolve()
-WORKDIR.mkdir(parents=True, exist_ok=True)
 
 BEND_BIN = os.environ.get("BEND_MCP_BEND_BIN", "bend")
 HVM_BIN = os.environ.get("BEND_MCP_HVM_BIN", "hvm")
 
-DEFAULT_TIMEOUT = int(os.environ.get("BEND_MCP_TIMEOUT", "60"))
+DEFAULT_TIMEOUT = _env_int("BEND_MCP_TIMEOUT", 60)
+MAX_TIMEOUT = max(DEFAULT_TIMEOUT, _env_int("BEND_MCP_MAX_TIMEOUT", 300))
+MAX_OUTPUT_CHARS = _env_int("BEND_MCP_MAX_OUTPUT", 65536)
+MAX_CODE_BYTES = _env_int("BEND_MCP_MAX_CODE_BYTES", 1_000_000)
+BENCH_BUDGET_SECONDS = _env_int("BEND_MCP_BENCH_BUDGET", 600)
+MAX_ARGS = 16
+MAX_ARG_LEN = 256
+MAX_NAME_LEN = 64
 
-_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
-_SAFE_ARG_RE = re.compile(r"^[A-Za-z0-9_+\-*/.<>=()[\]{}:, ]+$")
+_SAFE_NAME_RE = re.compile(r"[A-Za-z0-9_\-]+")
+_SAFE_ARG_RE = re.compile(r"[A-Za-z0-9_+\-*/.<>=()\[\]{}:, ]+")
+
+# Variables de entorno que se pasan a los subprocess (el resto NO se hereda).
+_ENV_KEEP = {
+    "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL",
+    "TMPDIR", "TEMP", "TMP", "CUDA_HOME", "CUDA_PATH",
+    "LD_LIBRARY_PATH", "SYSTEMROOT",
+}
 
 mcp = FastMCP("bend-mcp")
 
-# Cachés baratos para no re-invocar el CLI en cada tool call.
+# Caché de probes del CLI. Solo se guardan resultados exitosos.
 _PROBE_CACHE: dict[str, Any] = {}
 
 
+def _ensure_workdir() -> None:
+    WORKDIR.mkdir(parents=True, exist_ok=True)
+
+
+def _clamp_timeout(timeout: Any) -> int:
+    try:
+        t = int(timeout)
+    except (TypeError, ValueError):
+        t = DEFAULT_TIMEOUT
+    return max(1, min(t, MAX_TIMEOUT))
+
+
+def _cap(text: str) -> str:
+    if len(text) <= MAX_OUTPUT_CHARS:
+        return text
+    omitted = len(text) - MAX_OUTPUT_CHARS
+    return text[:MAX_OUTPUT_CHARS] + f"\n[bend-mcp] ...salida truncada ({omitted} caracteres omitidos)."
+
+
+def _child_env() -> dict[str, str]:
+    extra = {
+        k.strip()
+        for k in os.environ.get("BEND_MCP_ENV_PASSTHROUGH", "").split(",")
+        if k.strip()
+    }
+    keep = _ENV_KEEP | extra
+    return {k: v for k, v in os.environ.items() if k in keep}
+
+
 def _safe_bend_path(name: str) -> Path:
+    _ensure_workdir()
     stem = name[:-5] if name.endswith(".bend") else name
-    if not _SAFE_NAME_RE.match(stem):
+    if len(stem) > MAX_NAME_LEN or not _SAFE_NAME_RE.fullmatch(stem):
         raise ValueError(
             f"Nombre de programa inválido: {name!r}. "
-            "Solo letras, números, '-' y '_' (sin rutas, sin extensión salvo .bend)."
+            f"Solo letras, números, '-' y '_' (máx. {MAX_NAME_LEN}; sin rutas, "
+            "sin extensión salvo .bend)."
         )
-    return WORKDIR / f"{stem}.bend"
+    path = WORKDIR / f"{stem}.bend"
+    if path.is_symlink():
+        raise ValueError(f"{path.name} es un enlace simbólico; no se permite.")
+    return path
+
+
+def _kill_tree(proc: "subprocess.Popen[str]") -> None:
+    """Mata el grupo de procesos completo (bend -> hvm -> binario compilado)."""
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def _run_subprocess(cmd: list[str], timeout: int) -> dict:
+    _ensure_workdir()
+    timeout = _clamp_timeout(timeout)
+    command = " ".join(cmd)
     start = time.monotonic()
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=str(WORKDIR),
-            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
+            env=_child_env(),
+            start_new_session=(os.name == "posix"),
         )
-        elapsed = time.monotonic() - start
-        return {
-            "ok": proc.returncode == 0,
-            "returncode": proc.returncode,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-            "elapsed_seconds": round(elapsed, 4),
-            "command": " ".join(cmd),
-        }
-    except subprocess.TimeoutExpired as e:
-        elapsed = time.monotonic() - start
-        return {
-            "ok": False,
-            "returncode": None,
-            "stdout": (e.stdout or ""),
-            "stderr": (e.stderr or "") + f"\n[bend-mcp] Timeout tras {timeout}s.",
-            "elapsed_seconds": round(elapsed, 4),
-            "command": " ".join(cmd),
-        }
     except FileNotFoundError:
         return {
             "ok": False,
@@ -83,15 +145,51 @@ def _run_subprocess(cmd: list[str], timeout: int) -> dict:
                 "¿Está instalado y en el PATH? Ver bend_check_install()."
             ),
             "elapsed_seconds": 0.0,
-            "command": " ".join(cmd),
+            "command": command,
         }
+    except OSError as e:
+        return {
+            "ok": False,
+            "returncode": None,
+            "stdout": "",
+            "stderr": f"[bend-mcp] No se pudo ejecutar '{cmd[0]}': {e}",
+            "elapsed_seconds": 0.0,
+            "command": command,
+        }
+
+    timed_out = False
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _kill_tree(proc)
+        try:
+            out, err = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            out, err = "", ""
+    elapsed = time.monotonic() - start
+
+    err = err or ""
+    if timed_out:
+        err += f"\n[bend-mcp] Timeout tras {timeout}s (proceso terminado)."
+    return {
+        "ok": (not timed_out) and proc.returncode == 0,
+        "returncode": None if timed_out else proc.returncode,
+        "stdout": _cap(out or ""),
+        "stderr": _cap(err),
+        "elapsed_seconds": round(elapsed, 4),
+        "command": command,
+    }
 
 
 def _bend_version_str() -> str:
-    if "version" not in _PROBE_CACHE:
-        r = _run_subprocess([BEND_BIN, "--version"], timeout=10)
-        _PROBE_CACHE["version"] = (r["stdout"] or r["stderr"]).strip()
-    return str(_PROBE_CACHE["version"])
+    if "version" in _PROBE_CACHE:
+        return str(_PROBE_CACHE["version"])
+    r = _run_subprocess([BEND_BIN, "--version"], timeout=10)
+    text = (r["stdout"] or r["stderr"]).strip()
+    if r["ok"]:
+        _PROBE_CACHE["version"] = text
+    return text
 
 
 def _bend_family() -> str:
@@ -100,18 +198,20 @@ def _bend_family() -> str:
     El skill y la sintaxis documentada asumen la era clásica (bend-lang 0.2.x).
     'Bend 2' es otro lenguaje con sintaxis distinta; se reporta como unknown.
     """
-    if "family" not in _PROBE_CACHE:
-        v = _bend_version_str()
-        _PROBE_CACHE["family"] = "classic" if re.search(r"\b0\.2\.\d+", v) else "unknown"
-    return str(_PROBE_CACHE["family"])
+    v = _bend_version_str()
+    return "classic" if re.search(r"\b0\.2\.\d+", v) else "unknown"
 
 
-def _bend_io_flag_supported() -> bool:
-    """True si el binario instalado acepta --io (no existe en 0.2.38)."""
-    if "io_flag" not in _PROBE_CACHE:
-        r = _run_subprocess([BEND_BIN, "run-c", "--help"], timeout=10)
-        _PROBE_CACHE["io_flag"] = "--io" in (r["stdout"] + r["stderr"])
-    return bool(_PROBE_CACHE["io_flag"])
+def _bend_io_flag_supported(subcmd: str = "run-c") -> bool:
+    """True si el subcomando indicado acepta --io (no existe en 0.2.38)."""
+    key = f"io_flag:{subcmd}"
+    if key in _PROBE_CACHE:
+        return bool(_PROBE_CACHE[key])
+    r = _run_subprocess([BEND_BIN, subcmd, "--help"], timeout=10)
+    supported = bool(re.search(r"--io\b", r["stdout"] + r["stderr"]))
+    if r["ok"]:
+        _PROBE_CACHE[key] = supported
+    return supported
 
 
 def _nvcc_available() -> bool:
@@ -122,12 +222,16 @@ def _validate_run_args(args: list[str] | None) -> str | None:
     """Devuelve un mensaje de error si los args no son seguros, o None."""
     if not args:
         return None
+    if len(args) > MAX_ARGS:
+        return f"Demasiados argumentos ({len(args)}); máximo {MAX_ARGS}."
     for a in args:
-        if not isinstance(a, str) or not a or "\x00" in a:
+        if not isinstance(a, str) or not a.strip() or "\x00" in a:
             return f"Argumento inválido: {a!r}."
-        if a.startswith("-"):
+        if len(a) > MAX_ARG_LEN:
+            return f"Argumento demasiado largo ({len(a)}); máximo {MAX_ARG_LEN} caracteres."
+        if a.lstrip().startswith("-"):
             return f"Argumento {a!r} empieza con '-'; no se permiten flags en args."
-        if not _SAFE_ARG_RE.match(a):
+        if not _SAFE_ARG_RE.fullmatch(a):
             return (
                 f"Argumento {a!r} contiene caracteres no permitidos. "
                 "Solo letras, números y + - * / . < > = ( ) [ ] { } : , espacio."
@@ -141,7 +245,7 @@ def _classify_syntax_note(family: str, version: str) -> str | None:
     return (
         f"AVISO: el binario detectado ({version or 'sin versión'}) no es de la "
         "era clásica bend-lang 0.2.x. Este servidor y su skill documentan la "
-        "sintaxis 0.2.x; 'Bend 2' es otro lenguaje. Verificá cada snippet con "
+        "sintaxis 0.2.x; 'Bend 2' es otro lenguaje. Verifica cada snippet con "
         "bend_check antes de confiar en la sintaxis."
     )
 
@@ -162,7 +266,7 @@ def bend_check_install() -> dict:
     if result["bend_found"]:
         result["bend_version"] = _bend_version_str()
         result["bend_family"] = _bend_family()
-        result["io_flag_supported"] = _bend_io_flag_supported()
+        result["io_flag_supported"] = _bend_io_flag_supported("run-c")
         note = _classify_syntax_note(result["bend_family"], result["bend_version"])
         if note:
             result["syntax_warning"] = note
@@ -176,19 +280,30 @@ def bend_check_install() -> dict:
 def bend_write_program(name: str, code: str, overwrite: bool = False) -> dict:
     """Escribe código fuente Bend a un archivo .bend dentro del workspace del servidor."""
     path = _safe_bend_path(name)
-    if path.exists() and not overwrite:
+    data = code.encode("utf-8")
+    if len(data) > MAX_CODE_BYTES:
         return {
             "ok": False,
             "path": str(path),
-            "error": "El archivo ya existe. Pasá overwrite=true si querés reemplazarlo.",
+            "error": f"El código excede el máximo de {MAX_CODE_BYTES} bytes.",
         }
-    path.write_text(code, encoding="utf-8")
-    return {"ok": True, "path": str(path), "bytes_written": len(code.encode("utf-8"))}
+    try:
+        # "xb" falla de forma atómica si ya existe (sin carrera exists()/write).
+        with open(path, "wb" if overwrite else "xb") as f:
+            f.write(data)
+    except FileExistsError:
+        return {
+            "ok": False,
+            "path": str(path),
+            "error": "El archivo ya existe. Pasa overwrite=true si quieres reemplazarlo.",
+        }
+    return {"ok": True, "path": str(path), "bytes_written": len(data)}
 
 
 @mcp.tool()
 def bend_list_programs() -> dict:
     """Lista los programas .bend guardados actualmente en el workspace del servidor."""
+    _ensure_workdir()
     files = sorted(p.name for p in WORKDIR.glob("*.bend"))
     return {"workdir": str(WORKDIR), "programs": files}
 
@@ -206,7 +321,7 @@ def bend_read_program(name: str) -> dict:
 def bend_check(name: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     """Valida sintaxis y tipos de un programa .bend SIN ejecutarlo (bend check).
 
-    Barato y seguro: usalo antes de bend_run para depurar errores de compilación.
+    Barato y seguro: úsalo antes de bend_run para depurar errores de compilación.
     """
     path = _safe_bend_path(name)
     if not path.exists():
@@ -229,10 +344,11 @@ def bend_run(
     mode: rs (secuencial puro), c (paralelo con HVM2/C, recomendado),
     cu (CUDA, requiere nvcc; si falta se cae a c y se reporta en mode_fallback).
     args: argumentos de programa (expresiones/valores para main, sin flags).
+    El timeout se limita a BEND_MCP_MAX_TIMEOUT (default 300 s).
     """
     path = _safe_bend_path(name)
     if not path.exists():
-        return {"ok": False, "error": f"No existe {path.name} en el workspace. Usá bend_write_program primero."}
+        return {"ok": False, "error": f"No existe {path.name} en el workspace. Usa bend_write_program primero."}
 
     args_error = _validate_run_args(args)
     if args_error:
@@ -249,12 +365,12 @@ def bend_run(
 
     io_skipped = None
     if io:
-        if _bend_io_flag_supported():
+        if _bend_io_flag_supported(subcmd):
             cmd.append("--io")
         else:
             io_skipped = (
                 "--io no existe en esta versión de Bend; el flag fue omitido. "
-                "Para programas con IO, ejecutá mode='c' (run-c ejecuta la IO por defecto)."
+                "Para programas con IO, ejecuta mode='c' (run-c ejecuta la IO por defecto)."
             )
 
     if args:
@@ -279,7 +395,7 @@ def bend_compile(
     """Compila un programa Bend a código C o CUDA standalone (gen-c / gen-cu).
 
     target: c (C + HVM2, requiere gcc), cu (CUDA, requiere nvcc),
-    auto (por defecto): cu si hay nvcc, si no c. Si pedís cu sin nvcc,
+    auto (por defecto): cu si hay nvcc, si no c. Si pides cu sin nvcc,
     se cae a c y se reporta en target_fallback.
     """
     path = _safe_bend_path(name)
@@ -314,7 +430,11 @@ def bend_benchmark(
     """Corre el mismo programa N veces por modo (rs, c, cu) y compara tiempos.
 
     Devuelve mediana y mínimo por modo (más estable que un solo timing).
-    runs_per_mode: 1..10 (por defecto 3). cu se salta si no hay nvcc.
+    runs_per_mode: 1..10 (por defecto 3). cu se salta si no hay nvcc (tener
+    nvcc no garantiza GPU: si cu falla, queda con ok=false).
+    El tiempo es el de la ejecución completa del comando y puede incluir
+    la compilación del backend; úsalo para comparar, no como tiempo puro
+    de cómputo. Hay un presupuesto total (BEND_MCP_BENCH_BUDGET, 600 s).
     """
     path = _safe_bend_path(name)
     if not path.exists():
@@ -323,28 +443,35 @@ def bend_benchmark(
     n = max(1, min(int(runs_per_mode), 10))
     cuda_ok = _nvcc_available()
     modes: list[Literal["rs", "c", "cu"]] = ["rs", "c"] + (["cu"] if cuda_ok else [])
+    deadline = time.monotonic() + BENCH_BUDGET_SECONDS
 
     runs: dict[str, Any] = {}
     for m in modes:
         samples: list[float] = []
         last: dict | None = None
-        all_ok = True
+        failed = False
+        budget_exceeded = False
         for _ in range(n):
+            if time.monotonic() > deadline:
+                budget_exceeded = True
+                break
             r = bend_run(name=name, mode=m, timeout=timeout_per_run)
             last = r
             if not r.get("ok"):
-                all_ok = False
+                failed = True
                 break
             samples.append(float(r.get("elapsed_seconds", 0.0)))
         entry: dict[str, Any] = {
-            "ok": all_ok,
+            "ok": (not failed) and len(samples) == n,
             "runs_completed": len(samples),
             "mode": m,
+            "samples_seconds": [round(s, 4) for s in samples],
         }
-        if samples:
+        if budget_exceeded:
+            entry["budget_exceeded"] = True
+        if samples and not failed:
             entry["median_seconds"] = round(statistics.median(samples), 4)
             entry["min_seconds"] = round(min(samples), 4)
-            entry["elapsed_seconds"] = [round(s, 4) for s in samples]
         if last is not None:
             entry["stdout"] = last.get("stdout", "")
             entry["stderr"] = last.get("stderr", "")
@@ -352,12 +479,13 @@ def bend_benchmark(
         runs[m] = entry
 
     if not cuda_ok:
-        runs["cu"] = {"ok": False, "skipped": True, "reason": "nvcc no encontrado / sin GPU NVIDIA"}
+        runs["cu"] = {"ok": False, "skipped": True, "reason": "nvcc no encontrado"}
 
     return {"program": path.name, "runs_per_mode": n, "runs": runs}
 
 
 def main() -> None:
+    _ensure_workdir()
     mcp.run()
 
 

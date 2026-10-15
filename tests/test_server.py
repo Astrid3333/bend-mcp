@@ -3,6 +3,7 @@
 Los tests que necesitan el binario `bend` se saltan si no está en el PATH.
 """
 
+import asyncio
 import shutil
 
 import pytest
@@ -16,8 +17,8 @@ HELLO = "def main() -> u24:\n  return 7\n"
 
 
 def _tool_names() -> set[str]:
-    tools = srv.mcp._tool_manager.list_tools()
-    return {t.name for t in tools}
+    # API pública (async); evita depender de mcp._tool_manager, que es privado.
+    return {t.name for t in asyncio.run(srv.mcp.list_tools())}
 
 
 def test_tools_registered() -> None:
@@ -106,7 +107,7 @@ def test_run_with_cli_args() -> None:
     srv.bend_write_program(name="t_add_args", code=code)
     r = srv.bend_run(name="t_add_args", mode="c", args=["+5", "+3"])
     assert r["ok"] is True
-    assert "+8" in r["stdout"] or "8" in r["stdout"]
+    assert "Result: +8" in r["stdout"]
 
 
 @needs_bend
@@ -136,7 +137,7 @@ def test_run_cu_fallback_without_nvcc() -> None:
 
 @needs_bend
 def test_io_flag_skipped_when_unsupported() -> None:
-    if srv._bend_io_flag_supported():
+    if srv._bend_io_flag_supported("run-c"):
         pytest.skip("esta versión de bend soporta --io")
     srv.bend_write_program(name="t_io_skip", code=HELLO)
     r = srv.bend_run(name="t_io_skip", mode="c", io=True)

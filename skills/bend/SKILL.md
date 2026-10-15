@@ -77,7 +77,7 @@ antes de incluirse:
 | `examples/fib_iterative.bend` | loop `bend` + `when` + `fork` (paralelismo dentro de loops) | `Result: 832040` |
 | `examples/parallel_sum.bend` | recursión divide-y-conquer (HVM la paraleliza sola, sin `fork`) | `Result: 500500` en rs y c |
 | `examples/list_sum.bend` | `List(u24)`, literal `[1, 2, 3]`, match con `case List/Nil` | `Result: 6` |
-| `examples/hello_io.bend` | IO completa: `-> IO(u24)`, `* <-`, `wrap(0)` (mode="c") | imprime + `Result: λa (a IO/...` |
+| `examples/hello_io.bend` | IO completa: `-> IO(u24)`, `* <-`, `wrap(0)` (mode="c") | Imprime el texto (lo importante); el `Result: λa (a IO/...` es ruido normal |
 | `examples/add_args.bend` | argumentos de CLI vía `bend_run(args=[...])` (params SIN anotar tipos) | `args=["+5","+3"]` → `Result: +8` |
 
 ## ¿Se paraleliza? (tabla de decisión)
@@ -91,9 +91,10 @@ antes de incluirse:
 
 Regla práctica: **el paralelismo en Bend clásico es IMPLÍCITO** (el grafo de
 interacciones se reduce en paralelo); `fork` solo existe dentro de `when`
-dentro de `bend` para forzar dos evaluaciones simultáneas. NO afirmar
-speedups sin medir con `bend_benchmark`: el README clásico reporta ~12x de
-`rs` a `c` en bitonic sort, pero cada programa difiere.
+dentro de `bend` para forzar dos evaluaciones simultáneas. Los tiempos son
+entre modos del MISMO programa: no afirmar cifras de speedup sin medir con
+`bend_benchmark` (el README clásico reporta mejoras grandes de `rs` a `c`,
+p. ej. en bitonic sort; no se verificó el número exacto).
 
 ## Referencia de herramientas
 
@@ -119,8 +120,9 @@ speedups sin medir con `bend_benchmark`: el README clásico reporta ~12x de
    Los programas con IO se ejecutan con `mode="c"` (run-c ejecuta la IO
    por defecto).
 3. **IO necesita la forma completa** o falla en silencio:
-   `def main() -> IO(u24):`, bind `* <- IO/print("...\n")` y
-   `return wrap(0)`. Si `main` no declara `-> IO(...)`, el programa puede
+   `def main() -> IO(u24):`, **`with IO:`** (habilita las operaciones
+   de IO), bind `* <- IO/print("...\n")` y `return wrap(0)`. Si falta
+   `with IO:` o `main` no declara `-> IO(...)`, el programa puede
    compilar pero NO imprimir nada (trampa verificada). Ver
    `examples/hello_io.bend`.
 4. **`cu` requiere `nvcc` + GPU NVIDIA**. Sin eso el servidor cae a `c`
@@ -142,24 +144,11 @@ speedups sin medir con `bend_benchmark`: el README clásico reporta ~12x de
     (`def main(x, y):`). Con `def main(x: u24, y: u24)` los args de CLI
     fallan con `Type Error: Expected function type`. Los args son
     expresiones: `"+5"` o `"5"` (ver `examples/add_args.bend`).
-11. La comparación de tiempos es entre modos del MISMO programa. No afirmar
-    speedups sin medir con `bend_benchmark`.
 
 ## Errores y recuperación
 
-| Mensaje / síntoma | Acción |
-|---|---|
-| `No se encontró el binario 'bend'` | Pedir instalar Bend (`cargo install bend-lang`) o ajustar `BEND_MCP_BEND_BIN`. |
-| `syntax_warning` en install | Binario no es 0.2.x: avisar al usuario; validar todo con `bend_check` antes de correr. |
-| `El archivo ya existe. Pasá overwrite=true` | Reintentar con `overwrite=true` solo si el usuario quiere reemplazar. |
-| `No existe X en el workspace` | Llamar `bend_list_programs` y reescribir con `bend_write_program`. |
-| `[bend-mcp] Timeout tras Ns` | Programa posiblemente no paralelizable o demasiado grande; bajar el input o subir `timeout`. |
-| `expected: ...` / errores de parse | La sintaxis no coincide con Bend 0.2.x (ver referencia). Muchos ejemplos de internet son de otra versión. |
-| `Redefinition of builtin (type) 'X'` | Renombrar el tipo (ver regla dura 7). |
-| `Unbound variable 'a.b'` | Acceso encadenado de campos; usar match anidado. |
-| `Unbound variable 'fork'` | `fork` fuera de `when`/`bend`; sacarlo (la recursión ya se paraleliza sola). |
-| `Type Error: Expected function type ... main` | Params de `main` anotados con tipos; quitar anotaciones si se usan args de CLI. |
-| `io_skipped` en el resultado | Normal: el flag `--io` no existe en esta versión; la IO corre igual en mode="c". |
+Ver `references/errores.md` — tabla de mensajes comunes del binario `bend`
+y del servidor `bend-mcp`, con la acción de recuperación para cada uno.
 
 ## Sintaxis mínima
 
@@ -168,6 +157,8 @@ Resumen para arrancar (verificado, 832040):
 
 ```py
 def fib_iterative(n: u24) -> u24:
+  # n sin inicializador a propósito: toma el parámetro de la función
+  # (verificado en 0.2.38: fib_iterative(30) -> 832040)
   bend a=0, b=1, n:
     when n != 0:
       return fork(b, a + b, n - 1)
