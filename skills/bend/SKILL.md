@@ -119,12 +119,14 @@ p. ej. en bitonic sort; no se verificó el número exacto).
    el servidor lo omite automáticamente y lo explica en `io_skipped`.
    Los programas con IO se ejecutan con `mode="c"` (run-c ejecuta la IO
    por defecto).
-3. **IO necesita la forma completa** o falla en silencio:
-   `def main() -> IO(u24):`, **`with IO:`** (habilita las operaciones
-   de IO), bind `* <- IO/print("...\n")` y `return wrap(0)`. Si falta
-   `with IO:` o `main` no declara `-> IO(...)`, el programa puede
-   compilar pero NO imprimir nada (trampa verificada). Ver
-   `examples/hello_io.bend`.
+3. **IO necesita la forma completa** (los cuatro elementos juntos, como en
+   `examples/hello_io.bend`): `def main() -> IO(u24):`, `with IO:`,
+   bind `* <- IO/print("...\n")` y `return wrap(0)`. Verificado en 0.2.38:
+   sin `with IO:` el check falla (`Monadic bind ... outside of a do block`);
+   `IO/print(...)` a secas no parsea; sin `return wrap(0)` hay error de
+   tipos. Y sobre todo: la IO solo se EJECUTA con mode="c" — con
+   mode="rs" el programa corre pero no imprime y devuelve el árbol de la
+   IO como λ sin reducir (verificado; ver regla 2).
 4. **`cu` requiere `nvcc` + GPU NVIDIA**. Sin eso el servidor cae a `c`
    automáticamente (`mode_fallback` / `target_fallback`).
 5. **Números**: `u24` (0 a 16 777 215; se desborda arriba), `i24`, `f24`

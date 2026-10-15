@@ -14,7 +14,9 @@ def main() -> u24:
 - Indentación con espacios, bloques con `:` (estilo Python).
 - Anotaciones de tipo opcionales pero recomendadas:
   `def f(x: u24) -> u24:`.
-- Las defsin `return` devuelven la última expresión del cuerpo.
+- El cuerpo de cada `def` necesita `return` explícito: una última
+  expresión a secas (`n * 2` o `42`) da error `expected: statement`
+  (verificado en 0.2.38).
 - No existen defs de una sola línea (`def f(n): n * 2` NO compila).
 
 ## Nativos
@@ -204,22 +206,24 @@ def main() -> IO(u24):
     return wrap(0)
 ```
 
-Los cuatro elementos son obligatorios (verificado):
-1. `def main() -> IO(u24):` — el tipo de retorno DEBE ser `IO(...)`.
-2. `with IO:` — habilita las operaciones.
-3. `* <- IO/print(...)` (o `_ <- ...`) — bind del resultado de la operación.
-4. `return wrap(0)` — el valor final se envuelve con `wrap`.
+Forma verificada en 0.2.38 — los cuatro elementos juntos (ver
+`examples/hello_io.bend`):
+1. `def main() -> IO(u24):` — anotar el tipo de retorno es lo
+   recomendado; también se verificó que `def main():` (sin anotar) con el
+   cuerpo IO completo imprime igual.
+2. `with IO:` — obligatorio junto a `* <-`: sin él el check falla con
+   `Monadic bind operation '* <- ...' used outside of a do block`
+   (verificado).
+3. `* <- IO/print(...)` (o `_ <- ...`) — obligatorio: `IO/print(...)`
+   a secas no parsea (`expected: statement`, verificado).
+4. `return wrap(0)` — obligatorio: con `return 0` falla con error de
+   tipos (`Can't unify`, verificado).
 
-TRAMPA verificada: si `main` no declara `-> IO(...)` (ej. `def main():`
-con `return 0`), el programa puede pasar el check y compilar pero NO
-imprimir nada (sale `Result: 0` sin el texto). Siempre copiar la forma
-completa de arriba (ver `examples/hello_io.bend`).
-
-Verificado: con `bend run-c` imprime `Hello, world!` y el resultado se
-muestra como estructura IO cruda (`Result: λa (a IO/Done/tag IO/MAGIC 0)`)
-— eso es normal, el `wrap(0)` es el valor retornado por la IO. Con
-`bend run-rs` la IO no se ejecuta. El flag `--io` de versiones antiguas
-ya no existe en 0.2.38 (el MCP lo omite automáticamente). Funciones de IO
+TRAMPA verificada: con `bend run-rs` la IO NO se ejecuta: el programa
+corre, no imprime el texto y devuelve el árbol de la IO como λ sin
+reducir. Para programas con IO usar siempre mode="c" (run-c). El flag
+`--io` de versiones antiguas ya no existe en 0.2.38 (el MCP lo omite
+automáticamente). Funciones de IO
 disponibles (parciales): `IO/print`, `IO/read`, `IO/open`, `IO/write`,
 `IO/close` (consúltese `docs/builtins.md` del repo clásico de Bend).
 

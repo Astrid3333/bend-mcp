@@ -31,6 +31,29 @@ def probe_cache(monkeypatch):
     return srv._PROBE_CACHE
 
 
+def _pid_gone(pid: int, timeout: float = 3.0) -> bool:
+    """True cuando el proceso ya no existe o es un zombi sin reapear.
+
+    `os.kill(pid, 0)` también tiene éxito con zombis, así que un chequeo
+    inmediato tras `wait()` es flaky: se hace polling y se acepta estado Z.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        try:
+            with open(f"/proc/{pid}/status") as f:
+                status = f.read()
+        except OSError:
+            status = ""
+        if "State:\tZ" in status:
+            return True
+        time.sleep(0.05)
+    return False
+
+
 # --- timeout y árbol de procesos -------------------------------------------
 
 def test_timeout_kills_and_reports():
@@ -82,8 +105,7 @@ def test_kill_tree_kills_grandchild(workdir):
     gc_pid = int(pidfile.read_text().strip())
     srv._kill_tree(proc)
     proc.wait(timeout=5)
-    with pytest.raises(OSError):
-        os.kill(gc_pid, 0)
+    assert _pid_gone(gc_pid)
 
 
 # --- truncado de salida y clamps -------------------------------------------
@@ -99,6 +121,15 @@ def test_cap_truncates(monkeypatch):
     assert out.startswith("x" * 10)
     assert "truncada" in out
     assert "90 caracteres omitidos" in out
+
+
+def test_run_subprocess_caps_output(monkeypatch):
+    monkeypatch.setattr(srv, "MAX_OUTPUT_CHARS", 100)
+    r = srv._run_subprocess(
+        ["bash", "-c", "head -c 5000 /dev/zero | tr '\\0' x"], timeout=10
+    )
+    assert r["ok"] is True
+    assert "truncada" in r["stdout"] and len(r["stdout"]) < 300
 
 
 def test_clamp_timeout_default(monkeypatch):
@@ -159,6 +190,11 @@ def test_name_rejects_bad_chars(workdir):
         srv._safe_bend_path("a;b")
     with pytest.raises(ValueError):
         srv._safe_bend_path("")
+
+
+def test_name_rejects_trailing_newline(workdir):
+    with pytest.raises(ValueError):
+        srv._safe_bend_path("foo\n")  # regresión del `$` -> fullmatch
 
 
 @needs_posix
