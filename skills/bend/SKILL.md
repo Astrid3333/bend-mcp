@@ -93,7 +93,7 @@ salida esperada, verificados en `rs` y `c`. Vía MCP:
 | Recursión lineal: `f(n-1) + c`, Fibonacci **iterativo** (loop `bend`/acumulativo), loops secuenciales | **No** (a veces pierde) | Cada paso depende del anterior; no hay trabajo independiente que repartir |
 | Fibonacci **recursivo** doble (`fib(k-1)+fib(k-2)`, ramas independientes) | **Sí** (medido: fib(32) rs≈10.3s, c≈2.7s, ~3.8x en i7-4785T 4 núcleos; c incluye compilación) | Las dos ramas son independientes: el patrón divide-y-conquer que HVM reparte |
 | Divide-y-conquer: mitades independientes (`sum_range(lo,hi)` = `sum(lo,mid) + sum(mid+1,hi)`) | **Sí** (ver el caso de fib recursivo arriba) | Ramas independientes que HVM reduce en paralelo |
-| Operaciones sobre datos grandes (sort, map/reduce de listas grandes) | **Sí** | Muchas reducciones simultáneas |
+| Operaciones sobre datos grandes (sort, map/reduce de listas grandes) | **Sí** (esperable, no medido) | Muchas reducciones simultáneas |
 | Programas con pocos nodos de trabajo | No | El overhead domina |
 
 Regla práctica: **el paralelismo en Bend clásico es IMPLÍCITO** (el grafo de

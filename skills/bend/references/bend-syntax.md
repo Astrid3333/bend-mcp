@@ -197,6 +197,8 @@ def main(x, y):          # params SIN anotar tipos
 ```sh
 bend run-c add_args.bend +5 +3   # Result: +8
 bend run-c add_args.bend 5 3     # Result: 8
+# Equivalencia MCP (el camino de quien instala el servidor):
+#   bend_run(name="add_args", mode="c", args=["+5","+3"]) → Result: +8
 ```
 
 - Con `def main(x: u24, y: u24):` los args fallan con
