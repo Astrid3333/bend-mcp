@@ -7,7 +7,16 @@ Cada programa fue verificado en dos pasos antes de entrar al test suite:
 
 El test suite completo (`tests/test_task_suite.py`) los corre en ambos
 modos (`rs` y `c`); los 26 resultados coinciden, confirmando que el
-backend paralelo produce los mismos valores.
+backend paralelo produce los mismos valores. (Verificado localmente:
+26/26 PASS con bend 0.2.38.)
+
+Los comandos de ejemplo de abajo usan el CLI directo; la equivalencia
+vía MCP (el camino de quien instale el servidor) es la misma operación:
+
+```python
+# CLI:  bend run-rs sum.bend 3 5
+await bend_run(name="sum", mode="rs", args=["3", "5"])
+```
 
 ## Tabla resumen
 
@@ -23,7 +32,7 @@ backend paralelo produce los mismos valores.
 | gcd_48_18 | MCD(48,18) | `48 18` | `6` |
 | det2_pos | det([[2,1],[1,1]]) = 2·1 − 1·1 | `2 1 1 1` | `1` |
 | primes_count_100 | primos ≤ 100 | `100` | `25` |
-| dot3 | producto punto [1,2,3]·[4,5,6] | `3` | `32` |
+| dot3 | producto punto [1,2,3]·[4,5,6] | `3` (largo de los vectores) | `32` |
 | collatz_27 | pasos de Collatz desde 27 | `27` | `111` |
 | max_list | máximo de [3,17,5] | `[3,17,5]` | `17` |
 

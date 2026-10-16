@@ -81,6 +81,11 @@ antes de incluirse:
 | `examples/hello_io.bend` | IO completa: `-> IO(u24)`, `with IO:`, `* <-`, `wrap(0)` (mode="c") | Imprime el texto (lo importante); el `Result: λa (a IO/...` es ruido normal |
 | `examples/add_args.bend` | argumentos de CLI vía `bend_run(args=[...])` (params SIN anotar tipos) | `args=["+5","+3"]` → `Result: +8` |
 
+Además, `references/verified-tasks.md` incluye 13 programas más (suma,
+factorial, Fibonacci, MCD, primos, Collatz, listas…) con sus args y su
+salida esperada, verificados en `rs` y `c`. Vía MCP:
+`bend_run(name="...", mode="c", args=["3","5"])`.
+
 ## ¿Se paraleliza? (tabla de decisión)
 
 | Patrón | ¿Gana con mode="c"? | Por qué |
