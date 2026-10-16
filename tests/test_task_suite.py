@@ -12,9 +12,10 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 # conftest ANTES de importar el servidor: fija BEND_MCP_WORKDIR a un
-# temporal también al correr este archivo como script.
+# temporal también al correr este archivo como script o como módulo.
 from conftest import call
 
 import bend_mcp.server as srv
