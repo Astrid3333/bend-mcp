@@ -1,11 +1,15 @@
 """Banco de tareas Bend: cada programa se guarda, ejecuta y se compara
-contra la salida esperada (verificada con Octave y con el CLI de Bend
-0.2.38 antes de codificar). Necesita needs_bend, overwrite=True,
-comparación exacta de la línea `Result: X`, y parametrización rs/c
-para comprobar que el backend paralelo da los mismos resultados."""
+contra la salida esperada. Las salidas esperadas se re-verifican en CI
+con una segunda herramienta (Octave) vía OCTAVE_EXPR: cada valor fue
+calculado con Octave ANTES de codificar el programa en Bend, y el test
+test_expected_matches_octave lo confirma en cada corrida. Necesita
+needs_bend, overwrite=True, comparación exacta de la línea `Result: X`,
+y parametrización rs/c para comprobar que el backend paralelo da los
+mismos resultados."""
 
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -108,6 +112,30 @@ TASKS = [
         "17",
         ["[3, 17, 5]"],
     ),
+    (
+        "nqueens_8",
+        "def safe(qs, d, c):\n  match qs:\n    case List/Nil:\n      return 1\n    case List/Cons:\n      if qs.head == c:\n        return 0\n      elif qs.head - c == d:\n        return 0\n      elif c - qs.head == d:\n        return 0\n      else:\n        return safe(qs.tail, d + 1, c)\n\ndef append(a, b):\n  match a:\n    case List/Nil:\n      return b\n    case List/Cons:\n      return List/Cons {head: a.head, tail: append(a.tail, b)}\n\ndef tryrow(row, n, c, qs):\n  if row == n:\n    return List/Cons {head: qs, tail: List/Nil}\n  elif c >= n:\n    return List/Nil\n  elif safe(qs, 1, c) == 0:\n    return tryrow(row, n, c + 1, qs)\n  else:\n    placed = tryrow(row + 1, n, 0, List/Cons {head: c, tail: qs})\n    skipped = tryrow(row, n, c + 1, qs)\n    return append(placed, skipped)\n\ndef count(xs):\n  match xs:\n    case List/Nil:\n      return 0\n    case List/Cons:\n      return 1 + count(xs.tail)\n\ndef main(n):\n  return count(tryrow(0, n, 0, List/Nil))\n",
+        "92",
+        ["8"],
+    ),
+    (
+        "tree_sum_8",
+        "def build(rem, idx):\n  if rem == 0:\n    return Tree/Leaf {value: idx}\n  else:\n    return Tree/Node {left: build(rem - 1, idx * 2), right: build(rem - 1, idx * 2 + 1)}\n\ndef tsum(t):\n  match t:\n    case Tree/Leaf:\n      return t.value\n    case Tree/Node:\n      return tsum(t.left) + tsum(t.right)\n\ndef main(depth):\n  return tsum(build(depth, 0))\n",
+        "32640",
+        ["8"],
+    ),
+    (
+        "msort_8",
+        "def merge(a, b):\n  match a:\n    case List/Nil:\n      return b\n    case List/Cons:\n      match b:\n        case List/Nil:\n          return a\n        case List/Cons:\n          if a.head <= b.head:\n            return List/Cons {head: a.head, tail: merge(a.tail, b)}\n          else:\n            return List/Cons {head: b.head, tail: merge(a, b.tail)}\n\ndef split(xs, n):\n  if n == 0:\n    return List/Cons {head: List/Nil, tail: List/Cons {head: xs, tail: List/Nil}}\n  else:\n    match xs:\n      case List/Nil:\n        return List/Cons {head: List/Nil, tail: List/Cons {head: List/Nil, tail: List/Nil}}\n      case List/Cons:\n        r = split(xs.tail, n - 1)\n        match r:\n          case List/Nil:\n            return List/Nil\n          case List/Cons:\n            half_a = r.head\n            rest = r.tail\n            match rest:\n              case List/Nil:\n                return List/Nil\n              case List/Cons:\n                half_b = rest.head\n                new_a = List/Cons {head: xs.head, tail: half_a}\n                return List/Cons {head: new_a, tail: List/Cons {head: half_b, tail: List/Nil}}\n\ndef msort(xs, n):\n  if n <= 1:\n    return xs\n  else:\n    r = split(xs, n / 2)\n    match r:\n      case List/Nil:\n        return List/Nil\n      case List/Cons:\n        a = r.head\n        rest = r.tail\n        match rest:\n          case List/Nil:\n            return List/Nil\n          case List/Cons:\n            b = rest.head\n            return merge(msort(a, n / 2), msort(b, n - n / 2))\n\ndef main(xs, n):\n  return msort(xs, n)\n",
+        "[1, 2, 3, 4, 6, 7, 8, 9]",
+        ["[9, 3, 7, 1, 8, 2, 6, 4]", "8"],
+    ),
+    (
+        "minimax_3",
+        "def leafval(idx):\n  return (idx * 7) % 13\n\ndef mt(rem, idx, depth):\n  if rem == 0:\n    return leafval(idx)\n  else:\n    a = mt(rem - 1, idx * 2, depth)\n    b = mt(rem - 1, idx * 2 + 1, depth)\n    if (depth - rem) % 2 == 0:\n      if a > b:\n        return a\n      else:\n        return b\n    else:\n      if a < b:\n        return a\n      else:\n        return b\n\ndef main(depth):\n  return mt(depth, 0, depth)\n",
+        "9",
+        ["3"],
+    ),
 ]
 
 
@@ -136,6 +164,78 @@ def _run_task(task_id, code, expected, args, mode="rs"):
 def test_task(tid, code, expected, args, mode):
     _, status, detail = _run_task(tid, code, expected, args, mode)
     assert status == "PASS", detail
+
+
+# Expresiones Octave que reproducen la salida esperada de CADA tarea.
+# Verificadas manualmente contra octave 11.3.0 antes de codificar los
+# programas en Bend; test_expected_matches_octave las re-ejecuta.
+OCTAVE_EXPR = {
+    "sum": "disp(3+5)",
+    "fact10": "disp(factorial(10))",
+    "fib_iter30": "a=0;b=1;for k=1:30 t=a+b;a=b;b=t;end;disp(a)",
+    "fib_rec20": "a=0;b=1;for k=1:20 t=a+b;a=b;b=t;end;disp(a)",
+    "sum_range_1_1000": "disp(sum(1:1000))",
+    "list_sum_1_5": "disp(sum([1 2 3 4 5]))",
+    "pow2_20": "disp(2^20)",
+    "gcd_48_18": "disp(gcd(48,18))",
+    "det2_pos": "disp(2*1-1*1)",
+    "primes_count_100": "disp(numel(primes(100)))",
+    "dot3": "disp(1*4+2*5+3*6)",
+    "collatz_27": (
+        "k=27;n=0;while(k!=1); if mod(k,2)==0; k=k/2; else; k=3*k+1; "
+        "endif; n=n+1; endwhile; disp(n)"
+    ),
+    "max_list": "disp(max([3 17 5]))",
+    # n-queens: backtracking en Octave (columnas 1-based; misma poda)
+    "nqueens_8": (
+        "function c = qcnt(n, row, cols); if row > n; c = 1; return; "
+        "endif; c = 0; for col = 1:n; ok = 1; for r = 1:row-1; "
+        "if cols(r)==col || abs(cols(r)-col)==row-r; ok = 0; endif; "
+        "endfor; if ok; cols(row)=col; c += qcnt(n, row+1, cols); "
+        "endif; endfor; endfunction; disp(qcnt(8,1,zeros(1,8)))"
+    ),
+    # arbol binario completo de hojas 0..2^8-1: suma = sum(0:255)
+    "tree_sum_8": "disp(sum(0:255))",
+    # merge sort: la salida de Bend es el literal de lista Octave
+    "msort_8": (
+        "s=sprintf('%d, ', sort([9 3 7 1 8 2 6 4])); "
+        "disp(['[' s(1:end-2) ']' ])"
+    ),
+    # minimax: mismo arbol y mismas hojas (idx*7)%13, max/min alternos
+    "minimax_3": (
+        "function v = mt(rem, idx, depth); if rem == 0; "
+        "v = mod(idx*7, 13); else; a = mt(rem-1, idx*2, depth); "
+        "b = mt(rem-1, idx*2+1, depth); if mod(depth-rem, 2) == 0; "
+        "v = max(a, b); else; v = min(a, b); endif; endif; "
+        "endfunction; disp(mt(3, 0, 3))"
+    ),
+}
+
+needs_octave = pytest.mark.skipif(
+    shutil.which("octave") is None, reason="octave no disponible"
+)
+
+
+def _octave(expr):
+    r = subprocess.run(
+        ["octave", "--quiet", "--eval", expr],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return (r.stdout or "").strip()
+
+
+@needs_octave
+@pytest.mark.parametrize(
+    "tid,code,expected,args", TASKS, ids=[t[0] for t in TASKS]
+)
+def test_expected_matches_octave(tid, code, expected, args):
+    assert _octave(OCTAVE_EXPR[tid]) == expected
+
+
+def test_octave_covers_all_tasks():
+    assert set(OCTAVE_EXPR) == {t[0] for t in TASKS}
 
 
 if __name__ == "__main__":

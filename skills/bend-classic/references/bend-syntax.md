@@ -31,6 +31,21 @@ Casting: `u24/to_f24(2)`, `f24/to_i24(1.0)`, `i24/to_u24(-3)`.
 División entera: `/` (ej. `(10 + 5) / 2` → `7`). NO existe `//`.
 Separador de miles: `1_000_000`.
 
+**Regla u24 sin signo (verificada con N-reinas):** `x < 0` NUNCA se
+cumple en u24 (negativos envuelven a valores grandes), así que
+cualquier `abs(x)` vía `0 - x` está roto (devuelve 16777215 para −1).
+Para comparar distancias/colisiones en AMBOS sentidos usar el patrón
+doble verificado (ver `examples/nqueens.bend`); ojo: `or` y `||` NO
+compilan como operadores booleanos en 0.2.38, usar `elif` en cadena:
+
+```py
+# diagonal segura: |a - b| == d, sin abs, en u24
+if a - b == d:
+  return 0
+elif b - a == d:
+  return 0
+```
+
 ## Condicionales y switches
 
 ```py
@@ -133,13 +148,47 @@ def main() -> u24:
       return 0
 ```
 
-## Tuplas
+## Tuplas (NO usar indexación)
+
+La indexación de tuplas `p[i]` está **rota en 0.2.38**: se desgarra a
+`Map/get` y devuelve siempre el último elemento (o falla al tipar).
 
 ```py
+# falla al tipar:
+#   In Map/get: Can't unify '((Map b) -> u24 -> (b, (Map b)))' and '((u24, u24) -> c)'
 def main() -> u24:
   p = (3, 4)
-  return p[0] * p[1]   # Verificado: Result: 12
+  return p[0] * p[1]
+
+# sin tipar compila pero da 16 (4*4), no 12; (7,8,9)[0] da 9, no 7.
+def main():
+  p = (3, 4)
+  return p[0] * p[1]   # Result: 16  (incorrecto)
 ```
+
+Además, una tupla que contiene listas + indexación **delashea el
+compilador** (`to_fun.rs:449 unreachable`). Alternativas verificadas:
+
+- Pares como lista anidada + match:
+
+```py
+def main():
+  p = List/Cons {head: 3, tail: List/Cons {head: 4, tail: List/Nil}}
+  match p:
+    case List/Cons:
+      a = p.head
+      rest = p.tail
+      match rest:
+        case List/Cons:
+          return a * rest.head   # Result: 12
+        case List/Nil:
+          return 0
+    case List/Nil:
+      return 0
+```
+
+- Para funciones que devuelven "dos cosas" (p. ej. `split` de merge sort),
+  devolver una lista de 2 listas y desempaquetar con match anidado.
 
 ## Paralelismo
 

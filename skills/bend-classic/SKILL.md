@@ -87,10 +87,14 @@ antes de incluirse:
 | `examples/list_sum.bend` | `List(u24)`, literal `[1, 2, 3]`, match con `case List/Nil` | `Result: 6` |
 | `examples/hello_io.bend` | IO completa: `-> IO(u24)`, `with IO:`, `* <-`, `wrap(0)` (mode="c") | Imprime el texto (lo importante); el `Result: λa (a IO/...` es ruido normal |
 | `examples/add_args.bend` | argumentos de CLI vía `bend_run(args=[...])` (params SIN anotar tipos) | `args=["+5","+3"]` → `Result: +8` |
+| `examples/merge_sort.bend` | divide-y-vencerás sobre listas (`split`+`merge`+`msort`), tuplas EVITADAS (match anidado) | `Result: [1, 2, 3, 4, 6, 7, 8, 9]` en rs y c |
+| `examples/nqueens.bend` | backtracking N-reinas con `List` como pila; diagonal con comparación a DOBLE sentido (u24 sin signo) | `Result: 92` en rs y c |
+| `examples/tree_sum.bend` | ADT `Tree` builtin (NO redefinible), construcción recursiva + suma | `Result: 32640` en rs y c |
+| `examples/minimax.bend` | minimax sobre árbol completo: max/min alternos por nivel, ramas paralelas | `Result: 9` en rs y c |
 
-Además, `references/verified-tasks.md` incluye 13 programas más (suma,
-factorial, Fibonacci, MCD, primos, Collatz, listas…) con sus args y su
-salida esperada, verificados en `rs` y `c`. Vía MCP:
+Además, `references/verified-tasks.md` incluye 17 programas con sus
+args y su salida esperada, verificados en `rs` y `c` (y cross-checked
+contra Octave por el test suite). Vía MCP:
 `bend_run(name="...", mode="c", args=["3","5"])`.
 
 ## ¿Se paraleliza? (tabla de decisión)
@@ -100,7 +104,11 @@ salida esperada, verificados en `rs` y `c`. Vía MCP:
 | Recursión lineal: `f(n-1) + c`, Fibonacci **iterativo** (loop `bend`/acumulativo), loops secuenciales | **No** (a veces pierde) | Cada paso depende del anterior; no hay trabajo independiente que repartir |
 | Fibonacci **recursivo** doble (`fib(k-1)+fib(k-2)`, ramas independientes) | **Sí** (medido: fib(32) rs≈10.3s, c≈2.7s, ~3.8x en i7-4785T 4 núcleos; c incluye compilación) | Las dos ramas son independientes: el patrón divide-y-conquer que HVM reparte |
 | Divide-y-conquer: mitades independientes (`sum_range(lo,hi)` = `sum(lo,mid) + sum(mid+1,hi)`) | **Sí** (ver el caso de fib recursivo arriba) | Ramas independientes que HVM reduce en paralelo |
-| Operaciones sobre datos grandes (sort, map/reduce de listas grandes) | **Sí** (esperable, no medido) | Muchas reducciones simultáneas |
+| Merge sort / quicksort (ramas de las mitades independientes) | **Sí** (verificado: mismo resultado en rs y c; ver `examples/merge_sort.bend`) | Divide-y-vencerás clásico que HVM reparte |
+| Backtracking con ramas independientes (N-reinas: colocar/faltar por columna) | **Sí** (verificado: mismo resultado en rs y c) | Cada intento de columna es una rama del grafo |
+| Minimax / DP sobre árbol completo (subárboles hermanos independientes) | **Sí** (verificado: mismo resultado en rs y c; ver `examples/minimax.bend`) | Subárboles que se evalúan en paralelo antes del max/min |
+| Construcción+recorrido de ADTs propios (árbol binario, ver `examples/tree_sum.bend`) | **Sí** (verificado: mismo resultado en rs y c) | `build` y `tsum` son recursión binaria pura |
+| Operaciones sobre datos grandes (map/reduce de listas grandes) | **Sí** (esperable, no medido) | Muchas reducciones simultáneas |
 | Programas con pocos nodos de trabajo | No | El overhead domina |
 
 Regla práctica: **el paralelismo en Bend clásico es IMPLÍCITO** (el grafo de
@@ -159,7 +167,18 @@ estable que un solo timing.
    `Unbound variable`. Usar match anidado o una variable intermedia.
 9. **`when` solo existe dentro de un loop `bend`**; como condicional
    normal usar `if/else`.
-10. **Args de CLI: params de `main` sin anotar tipos**
+10. **`u24` es SIN SIGNO: `0 - 1` envuelve a 16777215, no −1.** Por
+    tanto `x < 0` nunca se cumple y cualquier `abs`/`is_negative` vía
+    `0 - x` está roto. Para comparar distancias (p. ej. diagonales de
+    N-reinas) usar la forma de DOBLE sentido con `elif` en cadena (ni
+    `or` ni `||` compilan como booleanos en 0.2.38):
+    `if a - b == d: ... elif b - a == d: ...`. Ver
+    `examples/nqueens.bend`.
+11. **Tuplas: NO indexar** (`p[0]` está roto en 0.2.38: da el último
+    elemento o falla al tipar). Para "devolver dos cosas" usar una
+    lista de 2 elementos + `match` anidado (ver `split` en
+    `examples/merge_sort.bend` y `references/bend-syntax.md`).
+12. **Args de CLI: params de `main` sin anotar tipos**
     (`def main(x, y):`). Con `def main(x: u24, y: u24)` los args de CLI
     fallan con `Type Error: Expected function type`. Los args son
     expresiones: `"+5"` o `"5"` (ver `examples/add_args.bend`).
