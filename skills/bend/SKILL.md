@@ -86,8 +86,8 @@ antes de incluirse:
 | Patrón | ¿Gana con mode="c"? | Por qué |
 |---|---|---|
 | Recursión lineal: `f(n-1) + c`, Fibonacci **iterativo** (loop `bend`/acumulativo), loops secuenciales | **No** (a veces pierde) | Cada paso depende del anterior; no hay trabajo independiente que repartir |
-| Fibonacci **recursivo** doble (`fib(k-1)+fib(k-2)`, ramas independientes) | **Sí** (medido: fib(32) rs≈10.3s, c≈2.7s, ~3.8x) | Las dos ramas son independientes: el patrón divide-y-conquer que HVM reparte |
-| Divide-y-conquer: mitades independientes (`sum_range(lo,hi)` = `sum(lo,mid) + sum(mid+1,hi)`) | **Sí, en teoría** | Ramas independientes que HVM reduce en paralelo |
+| Fibonacci **recursivo** doble (`fib(k-1)+fib(k-2)`, ramas independientes) | **Sí** (medido: fib(32) rs≈10.3s, c≈2.7s, ~3.8x en i7-4785T 4 núcleos; c incluye compilación) | Las dos ramas son independientes: el patrón divide-y-conquer que HVM reparte |
+| Divide-y-conquer: mitades independientes (`sum_range(lo,hi)` = `sum(lo,mid) + sum(mid+1,hi)`) | **Sí** (ver el caso de fib recursivo arriba) | Ramas independientes que HVM reduce en paralelo |
 | Operaciones sobre datos grandes (sort, map/reduce de listas grandes) | **Sí** | Muchas reducciones simultáneas |
 | Programas con pocos nodos de trabajo | No | El overhead domina |
 
@@ -95,8 +95,11 @@ Regla práctica: **el paralelismo en Bend clásico es IMPLÍCITO** (el grafo de
 interacciones se reduce en paralelo); `fork` solo existe dentro de `when`
 dentro de `bend` para forzar dos evaluaciones simultáneas. Los tiempos son
 entre modos del MISMO programa: no afirmar cifras de speedup sin medir con
-`bend_benchmark` (el README clásico reporta mejoras grandes de `rs` a `c`,
-p. ej. en bitonic sort; no se verificó el número exacto).
+`bend_benchmark`. La cifra de fib(32) (~3.8x) se midió en un i7-4785T
+(4 núcleos / 8 hilos); en máquinas con menos núcleos el speedup será menor
+(típicamente ~2x con 2 núcleos). El tiempo de `c` incluye la compilación
+del backend; la mediana de varias corridas (`bend_benchmark`) es más
+estable que un solo timing.
 
 ## Referencia de herramientas
 
@@ -109,7 +112,7 @@ p. ej. en bitonic sort; no se verificó el número exacto).
 | `bend_check` | `name`, `timeout=60` | `bend check`: sintaxis+tipos sin ejecutar. **Usar siempre antes de run.** |
 | `bend_run` | `name`, `mode="c"`, `io=false`, `args=None`, `timeout=60` | `mode`: `rs` secuencial, `c` paralelo (recomendado), `cu` GPU. `cu` sin nvcc → cae a `c` y reporta `mode_fallback`. `args`: expresiones de CLI sin flags (ej. `["+5","+3"]`). `io=true`: el servidor agrega `--io` SOLO si el binario lo soporta; si no, lo omite y explica en `io_skipped`. |
 | `bend_compile` | `name`, `target="auto"`, `timeout=60` | `auto` (default): cu si hay nvcc, si no c. `cu` explícito sin nvcc → cae a `c` con `target_fallback`. |
-| `bend_benchmark` | `name`, `runs_per_mode=3`, `timeout_per_run=60` | N corridas por modo (1..10); devuelve `median_seconds` y `min_seconds` por modo (más estable que un solo timing). `cu` se salta sin nvcc. |
+| `bend_benchmark` | `name`, `runs_per_mode=3`, `timeout_per_run=60`, `args=None` | N corridas por modo (1..10); devuelve `median_seconds` y `min_seconds` por modo (más estable que un solo timing). `cu` se salta sin nvcc. `args`: expresiones CLI como en `bend_run` (ej. `["32"]` para un main que toma n). |
 
 ## Reglas duras (verificadas en bend 0.2.38)
 

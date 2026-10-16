@@ -452,12 +452,15 @@ async def bend_benchmark(
     name: str,
     runs_per_mode: int = 3,
     timeout_per_run: int = DEFAULT_TIMEOUT,
+    args: list[str] | None = None,
 ) -> dict:
     """Corre el mismo programa N veces por modo (rs, c, cu) y compara tiempos.
 
     Devuelve mediana y mínimo por modo (más estable que un solo timing).
     runs_per_mode: 1..10 (por defecto 3). cu se salta si no hay nvcc (tener
     nvcc no garantiza GPU: si cu falla, queda con ok=false).
+    args: expresiones CLI como en bend_run (ej. ["32"]), útiles cuando el
+    programa toma argumentos (main con parámetros).
     El tiempo es el de la ejecución completa del comando y puede incluir
     la compilación del backend; úsalo para comparar, no como tiempo puro
     de cómputo. Hay un presupuesto total (BEND_MCP_BENCH_BUDGET, 600 s).
@@ -469,6 +472,10 @@ async def bend_benchmark(
         return {"ok": False, "error": f"No existe {path.name} en el workspace."}
 
     n = max(1, min(int(runs_per_mode), 10))
+    args_error = _validate_run_args(args)
+    if args_error is not None:
+        return {"ok": False, "error": args_error}
+
     cuda_ok = _nvcc_available()
     modes: list[Literal["rs", "c", "cu"]] = ["rs", "c"] + (["cu"] if cuda_ok else [])
     deadline = time.monotonic() + BENCH_BUDGET_SECONDS
@@ -483,7 +490,7 @@ async def bend_benchmark(
             if time.monotonic() > deadline:
                 budget_exceeded = True
                 break
-            r = await bend_run(name=name, mode=m, timeout=timeout_per_run)
+            r = await bend_run(name=name, mode=m, args=args, timeout=timeout_per_run)
             last = r
             if not r.get("ok"):
                 failed = True

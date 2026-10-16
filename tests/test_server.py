@@ -174,3 +174,14 @@ def test_benchmark_skips_cu_without_nvcc() -> None:
     call(srv.bend_write_program(name="t_bench_skip", code=HELLO))
     b = call(srv.bend_benchmark(name="t_bench_skip", runs_per_mode=1))
     assert b["runs"]["cu"].get("skipped") is True
+
+
+@needs_bend
+def test_benchmark_with_args() -> None:
+    """bend_benchmark(args=[...]) pasa los argumentos a cada corrida."""
+    code = "def main(n):\n  return n * 2\n"
+    call(srv.bend_write_program(name="t_bench_args", code=code))
+    b = call(srv.bend_benchmark(name="t_bench_args", runs_per_mode=1, args=["21"]))
+    assert b["runs"]["rs"]["ok"] is True
+    assert b["runs"]["rs"]["stdout"].strip() == "Result: 42"
+    assert b["runs"]["c"]["stdout"].strip() == "Result: 42"
