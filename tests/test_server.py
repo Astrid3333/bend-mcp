@@ -127,6 +127,9 @@ def test_hello_io_prints() -> None:
 
 @needs_bend
 def test_run_cu_fallback_without_nvcc() -> None:
+    # GAP: en máquinas CON nvcc este test (y los de target auto/benchmark
+    # sin cu) se saltan, así que el camino `cu` real (run-cu con GPU
+    # NVIDIA) no queda probado por ningún test. Requiere host con nvcc.
     if shutil.which("nvcc"):
         pytest.skip("nvcc disponible: no hay fallback que probar")
     call(srv.bend_write_program(name="t_cu_fb", code=HELLO))
