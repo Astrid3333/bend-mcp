@@ -136,7 +136,7 @@ estable que un solo timing.
    `IO/print(...)` a secas no parsea; sin `return wrap(0)` hay error de
    tipos. Y sobre todo: la IO solo se EJECUTA con mode="c" — con
    mode="rs" el programa corre pero no imprime y devuelve el árbol de la
-   IO como λ sin reducir (verificado; ver la regla 2, io=true).
+   IO como λ sin reducir (verificado).
 4. **`cu` requiere `nvcc` + GPU NVIDIA**. Sin eso el servidor cae a `c`
    automáticamente (`mode_fallback` / `target_fallback`).
 5. **Números**: `u24` (0 a 16 777 215; se desborda arriba), `i24`, `f24`

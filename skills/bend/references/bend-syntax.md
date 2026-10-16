@@ -179,8 +179,8 @@ def main() -> u24:
 - `return fork(a, b)` FUERA de `when`/`bend` da
   `Unbound variable 'fork'` (verificado): no usarlo como operador general.
 - Recursión lineal (cada paso depende del anterior) NO gana nada al
-  paralelizarse; divide-y-conquer y reducciones grandes sí (en teoría;
-  medir con benchmark antes de afirmar speedups).
+  paralelizarse; divide-y-conquer y reducciones grandes sí (medido:
+  ver tabla de paralelismo en SKILL.md).
 - El operador `&` a nivel de expresión existe pero su lectura en 0.2.38
   no es predecible (`(1+2) & (10*3)` devuelve 2): no documentarlo ni
   usarlo.
