@@ -1,16 +1,37 @@
 """Banco de tareas Bend: cada programa se guarda, ejecuta y se compara
 contra la salida esperada (verificada con Octave y con el CLI de Bend
-0.2.38 antes de codificar)."""
+0.2.38 antes de codificar).
 
+Corrige (review pasted-6): needs_bend para CI sin bend, overwrite=True
+para re-ejecución standalone, comparación exacta de la línea `Result: X`,
+y parametrización rs/c para comprobar que el backend paralelo da los
+mismos resultados.
+"""
+
+import re
+import shutil
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import bend_mcp.server as srv
 from bend_mcp.server import bend_write_program, bend_run
 
+needs_bend = pytest.mark.skipif(
+    shutil.which(srv.BEND_BIN) is None, reason="binario 'bend' no disponible"
+)
+
+
+def call(coro):
+    import asyncio
+    return asyncio.run(coro)
+
+
 # (id, codigo_bend, salida_esperada, args_cli)
-# u24: todos los resultados < 16777215.
+# u24: todos los resultados < 16777215. Salidas verificadas con Octave.
 TASKS = [
     (
         "sum",
@@ -93,38 +114,39 @@ TASKS = [
 ]
 
 
-def call(coro):
-    import asyncio
-    return asyncio.run(coro)
-
-
-def _run_task(task_id, code, expected, args):
-    wr = call(bend_write_program(name=f"ts_{task_id}.bend", code=code))
+def _run_task(task_id, code, expected, args, mode="rs"):
+    wr = call(bend_write_program(name=f"ts_{task_id}", code=code, overwrite=True))
     if not wr.get("ok"):
         return (task_id, "WRITE_FAIL", wr.get("error", "?"))
     rr = call(
-        bend_run(name=f"ts_{task_id}.bend", mode="rs", io=False, args=args, timeout=30)
+        bend_run(name=f"ts_{task_id}", mode=mode, args=args, timeout=30)
     )
-    stdout = (rr.get("stdout") or "").strip()
-    if rr.get("ok") and expected in stdout:
-        return (task_id, "PASS", stdout)
+    out = rr.get("stdout") or ""
+    if rr.get("ok") and re.search(rf"^Result: {re.escape(expected)}$", out, re.M):
+        return (task_id, "PASS", out.strip())
     return (
         task_id,
         "FAIL",
-        f"expected={expected!r} got={stdout!r} err={rr.get('error', '')}",
+        f"expected={expected!r} got={out.strip()!r} err={rr.get('error', '')}",
     )
 
 
-def test_task_suite_all():
-    results = [_run_task(tid, code, exp, args) for tid, code, exp, args in TASKS]
-    fails = [r for r in results if r[1] != "PASS"]
-    for tid, status, detail in results:
-        assert status == "PASS", f"{tid}: {status} — {detail}"
-    assert not fails
+@needs_bend
+@pytest.mark.parametrize("mode", ["rs", "c"])
+@pytest.mark.parametrize(
+    "tid,code,expected,args", TASKS, ids=[t[0] for t in TASKS]
+)
+def test_task(tid, code, expected, args, mode):
+    _, status, detail = _run_task(tid, code, expected, args, mode)
+    assert status == "PASS", detail
 
 
 if __name__ == "__main__":
-    results = [_run_task(tid, code, exp, args) for tid, code, exp, args in TASKS]
+    results = []
+    for tid, code, expected, args in TASKS:
+        for mode in ("rs", "c"):
+            _tid, status, detail = _run_task(tid, code, expected, args, mode)
+            results.append((f"{_tid}[{mode}]", status, detail))
     width = max(len(r[0]) for r in results)
     npass = sum(1 for r in results if r[1] == "PASS")
     print(f"=== Banco de tareas Bend: {npass}/{len(results)} PASS ===")

@@ -8,7 +8,8 @@ description: >-
   (bend_check_install, bend_write_program, bend_check, bend_run, bend_compile,
   bend_benchmark, bend_list_programs, bend_read_program). Úsala cuando el
   usuario pide crear, ejecutar o comparar programas en el lenguaje Bend o usar
-  el servidor MCP bend-mcp.
+  el servidor MCP bend-mcp. Incluye 13 programas reales verificados contra una
+  segunda herramienta (Octave) y el CLI de Bend 0.2.38.
 license: MIT
 ---
 
@@ -84,7 +85,8 @@ antes de incluirse:
 
 | Patrón | ¿Gana con mode="c"? | Por qué |
 |---|---|---|
-| Recursión lineal: `f(n-1) + c`, Fibonacci clásico, loops `bend` secuenciales | **No** (a veces pierde) | Cada paso depende del anterior; no hay trabajo independiente que repartir |
+| Recursión lineal: `f(n-1) + c`, Fibonacci **iterativo** (loop `bend`/acumulativo), loops secuenciales | **No** (a veces pierde) | Cada paso depende del anterior; no hay trabajo independiente que repartir |
+| Fibonacci **recursivo** doble (`fib(k-1)+fib(k-2)`, ramas independientes) | **Sí** (medido: fib(32) rs≈10.3s, c≈2.7s, ~3.8x) | Las dos ramas son independientes: el patrón divide-y-conquer que HVM reparte |
 | Divide-y-conquer: mitades independientes (`sum_range(lo,hi)` = `sum(lo,mid) + sum(mid+1,hi)`) | **Sí, en teoría** | Ramas independientes que HVM reduce en paralelo |
 | Operaciones sobre datos grandes (sort, map/reduce de listas grandes) | **Sí** | Muchas reducciones simultáneas |
 | Programas con pocos nodos de trabajo | No | El overhead domina |
