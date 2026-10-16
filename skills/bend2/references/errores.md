@@ -65,6 +65,32 @@ Error:
    eso es del skill `bend-classic`, no de Bend 2. Verificar versión con
    `bend version` antes de reutilizar código.
 
+## `expected: b / observed: b (consumed more than once)`
+
+```
+Error:
+- expected : b
+- observed : b (consumed more than once)
+Context:
+- p : Nat
+- a : U32
+```
+
+**Causa**: Bend 2 es **afine** por defecto: cada variable se usa como
+máximo una vez. Un `fib(n, a, b)` que pasa `b` sin cambios y además
+calcula `a + b` la usa dos veces.
+**Arreglo**: marcar `+b` (reusable; el tipo debe ser `Data`):
+
+```python
+def fib(n: Nat, a: U32, +b: U32) -> U32:   # +b usada dos veces
+  match n:
+    case 0n: a
+    case 1n+p: fib(p, b, (a + b : U32))
+```
+
+`-x` = erased (solo tipos/proofs), sin prefijo = affine, `+x` = reusable
+(paga reference count en runtime). Ver `examples/fib_affine.bend` [V].
+
 ## `SOME PROOFS FAIL` con `@unsafe`
 
 No es error de sintaxis: `@unsafe`/`def f?` salta el chequeo de

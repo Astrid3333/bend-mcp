@@ -124,6 +124,7 @@ antes de incluirse:
 | `array.bend` | array in-place `[0 : U32*8n]` | `([0,...,42,...], 42)` |
 | `pow2.bend` | recursión `Nat` + `IO.print` | `1048576` |
 | `proof.bend` | `law` + proof + `{==}` | `ALL PROOFS CHECK` |
+| `fib_affine.bend` | `+b` obligatorio (afine; ver regla 6) | `fib(20) = 6765` |
 
 ```python
 # area.bend — datos con match (Bend 2)
