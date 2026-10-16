@@ -1,32 +1,39 @@
 ---
-name: bend
+name: bend-classic
 description: >-
   Use when the user wants to write, run, check, compile or benchmark programs
-  in the Bend parallel programming language (HigherOrderCO, HVM2, interaction
-  combinators), or asks about massively parallel functional code, GPU CPU
-  comparison of Bend programs, or the bend-mcp MCP server tools
-  (bend_check_install, bend_write_program, bend_check, bend_run, bend_compile,
-  bend_benchmark, bend_list_programs, bend_read_program). Úsala cuando el
-  usuario pide crear, ejecutar o comparar programas en el lenguaje Bend o usar
-  el servidor MCP bend-mcp. Incluye 13 programas reales verificados contra una
+  in the classic Bend parallel programming language (bend-lang 0.2.x,
+  HigherOrderCO, HVM2, interaction combinators) — NOT Bend 2 — or asks about
+  massively parallel functional code, GPU CPU comparison of classic Bend
+  programs, or the bend-mcp MCP server tools (bend_check_install,
+  bend_write_program, bend_check, bend_run, bend_compile, bend_benchmark,
+  bend_list_programs, bend_read_program). Úsala cuando el usuario pide crear,
+  ejecutar o comparar programas en el lenguaje Bend clásico (0.2.x) o usar el
+  servidor MCP bend-mcp. Incluye 13 programas reales verificados contra una
   segunda herramienta (Octave) y el CLI de Bend 0.2.38.
 license: MIT
 ---
 
-# bend — lenguaje Bend vía MCP (bend-mcp)
+# bend-classic — lenguaje Bend clásico vía MCP (bend-mcp)
 
-Skill para escribir, ejecutar y comparar programas **Bend** (HigherOrderCO,
-HVM2 / interaction combinators) usando las herramientas del servidor MCP
-`bend-mcp`. La sintaxis documentada aquí fue verificada localmente contra
-`bend-lang 0.2.38` + `hvm 2.0.22` (era clásica de Bend, NO el "Bend 2" actual
-del README de bendlang/bend, que es otro lenguaje).
+Skill para escribir, ejecutar y comparar programas **Bend clásico**
+(bend-lang 0.2.x, HigherOrderCO, HVM2 / interaction combinators) usando las
+herramientas del servidor MCP `bend-mcp`. La sintaxis documentada aquí fue
+verificada localmente contra `bend-lang 0.2.38` + `hvm 2.0.22`.
+
+**Este skill es SOLO para Bend clásico (0.2.x).** "Bend 2" (bendlang/bend,
+2.x, con `import Base`, tipos y proofs) es otro lenguaje con sintaxis distinta:
+para ese caso usar el skill `bend2`. No mezclar sintaxis de una versión con
+el binario de la otra.
 
 ## Cuándo usar
 
-- El usuario pide programar en Bend, probar el lenguaje Bend, o paralelizar
-  un algoritmo con Bend.
+- El usuario pide programar en **Bend clásico / bend-lang 0.2.x** o el
+  MCP `bend-mcp` está conectado con el binario classic.
 - Pide comparar ejecución Rust/CPU vs C/paralelo vs CUDA/GPU de un programa.
 - Pide instalar o usar el servidor `bend-mcp`.
+- Si el usuario dice "Bend 2", "bend2", "proofs", "IO monad", "import Base",
+  usar el skill **`bend2`**, no este.
 
 ## Prerrequisitos
 
@@ -48,9 +55,9 @@ y el servidor no arranca.
 1. **`bend_check_install`** — confirma `bend_found`, `hvm_found`,
    `cuda_available`, `bend_family`, `io_flag_supported` y versiones.
    - Si `bend_found=false`, parar y pedir instalar Bend.
-   - Si aparece `syntax_warning` (binario NO de la era clásica 0.2.x),
-     avisar al usuario: este skill documenta 0.2.x; "Bend 2" es otro
-     lenguaje. Verificar cada snippet con `bend_check`.
+    - Si aparece `syntax_warning` (binario NO de la era clásica 0.2.x),
+      el binario conectado es Bend 2: este skill NO aplica. Cambiar al
+      skill `bend2` y no emitir snippets 0.2.x con ese binario.
 2. **`bend_write_program`** — guarda el código en el workspace del servidor.
    - `name`: solo letras, números, `-`, `_`. Sin rutas. La extensión `.bend`
      es opcional (el servidor la agrega).

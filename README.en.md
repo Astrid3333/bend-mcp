@@ -32,9 +32,11 @@ requests are handled in between.
 
 ## Agent skill
 
-`skills/bend/` contains an installable agent skill (Claude Code, Cursor,
-Agensi-style marketplaces) with Bend 0.2.x syntax verified against
-`bend-lang 0.2.38`, runnable `.bend` examples, and a "does it parallelize?"
+`skills/bend-classic/` contains an installable agent skill (Claude Code,
+Cursor, Agensi-style marketplaces) with classic Bend 0.2.x syntax verified
+against `bend-lang 0.2.38`, runnable `.bend` examples, and a "does it
+parallelize?" table. `skills/bend2/` is the separate skill for Bend 2
+(bendlang/bend 2.x); syntax is never mixed between the two versions.
 decision table.
 
 ## Installation
@@ -100,7 +102,7 @@ Tests that need the `bend` binary skip automatically when it is not on PATH
 
 ## Examples
 
-`skills/bend/examples/` contains verified programs (`fib_iterative`,
+`skills/bend-classic/examples/` contains verified programs (`fib_iterative`,
 `parallel_sum`, `list_sum`, `hello_io`, `add_args`).
 
 ## License

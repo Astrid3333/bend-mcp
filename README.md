@@ -30,10 +30,12 @@ peticiones MCP se atienden entre medias.
 
 ## Skill para agentes
 
-`skills/bend/` contiene un skill instalable para agentes (Claude Code,
+`skills/bend-classic/` contiene un skill instalable para agentes (Claude Code,
 Cursor, marketplace estilo Agensi) con la sintaxis Bend 0.2.x verificada,
 ejemplos `.bend` que corrieron contra `bend-lang 0.2.38` antes de
-incluirse, y una tabla de "¿se paraleliza?".
+incluirse, y una tabla de "¿se paraleliza?". `skills/bend2/` es el skill
+separado para Bend 2 (bendlang/bend 2.x): no se mezclan sintaxis entre
+versiones.
 
 ## Instalación
 
@@ -103,7 +105,7 @@ está en el PATH (en CI se instala bend-lang 0.2.38 con cargo).
 
 ## Ejemplo
 
-Carpeta `skills/bend/examples/` incluye programas verificados
+Carpeta `skills/bend-classic/examples/` incluye programas verificados
 (`fib_iterative`, `parallel_sum`, `list_sum`, `hello_io`, `add_args`).
 
 ## Licencia
