@@ -8,23 +8,33 @@ Claude Code, Cursor, and other MCP-compatible clients.
 > Note: the HEAD of that repository currently describes "Bend 2", a
 > different language. The link points to the commit with the classic docs (2025-06).
 
+The server detects the binary's family (`classic` 0.2.x or `v2` 2.x) and
+emits the matching CLI commands; each family has its own skill
+(`bend-classic` / `bend2`), and the syntax of one does not work in the other.
+
 > Español: ver [README.md](README.md).
 
 ## Tools
 
 - `bend_check_install` — Checks whether Bend and HVM are installed: versions,
-  `bend_family` ("classic" = 0.2.x), `cuda_available` (nvcc),
-  `io_flag_supported`, and a `syntax_warning` if the binary is not from the
-  classic era.
+  `bend_family` ("classic" = 0.2.x, "v2" = Bend 2.x), `cuda_available` (nvcc),
+  `io_flag_supported`, and a `syntax_warning` only when the binary is not
+  recognized.
 - `bend_write_program` — Writes Bend source code to a `.bend` file in the workspace.
 - `bend_read_program` — Reads back a saved `.bend` program.
 - `bend_list_programs` — Lists the `.bend` programs in the workspace.
-- `bend_check` — Validates syntax and types WITHOUT running (`bend check`).
+- `bend_check` — Validates syntax and types WITHOUT running (`bend check` on
+  classic, `bend file --check-only` on v2).
 - `bend_run` — Runs a saved program (`rs` / `c` / `cu`) with optional CLI args.
   Falls back from `cu` to `c` when nvcc is missing (reported in `mode_fallback`).
-- `bend_compile` — Compiles to standalone C or CUDA (gen-c / gen-cu).
-  `target="auto"` (default) picks `cu` if nvcc is present, otherwise `c`.
+  On v2 there is a single runtime: the command is `bend file [args]` and `mode`
+  has no effect (reported in `mode_note`).
+- `bend_compile` — Compiles to standalone C or CUDA (classic: gen-c / gen-cu;
+  v2: emits C source with `-o file.c`, `cu` is reported in `target_fallback`).
+  `target="auto"` (default) picks `cu` if nvcc is present, otherwise `c`
+  (always `c` on v2).
 - `bend_benchmark` — N runs per mode (default 3) reporting median and min per mode.
+  On v2 a single `"v2"` key is measured (no rs/c/cu to compare).
 
 All tools are `async` and use `asyncio.create_subprocess_exec`: a long
 `bend_run` or `bend_benchmark` does not block the server; other MCP
@@ -37,12 +47,13 @@ Cursor, Agensi-style marketplaces) with classic Bend 0.2.x syntax verified
 against `bend-lang 0.2.38`, runnable `.bend` examples, and a "does it
 parallelize?" table. `skills/bend2/` is the separate skill for Bend 2
 (bendlang/bend 2.x); syntax is never mixed between the two versions.
-decision table.
 
 ## Installation
 
 Requires Python ≥3.10 and Bend/HVM installed on the system
-(`cargo install bend-lang hvm`). Note: requires `mcp` 1.x (`<2`);
+(`cargo install bend-lang hvm` for the classic family; for v2, the official
+Bend 2 installer and `BEND_MCP_BEND_BIN` pointing at its binary, e.g.
+`~/.bend/bin/bend`). Note: requires `mcp` 1.x (`<2`);
 `FastMCP` was removed in `mcp` 2.x (the pin in `pyproject.toml` enforces this).
 
 ```bash

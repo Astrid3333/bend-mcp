@@ -10,6 +10,12 @@ Todas las tools son `async` y ejecutan el CLI de Bend con
 (p. ej. bend_benchmark) no bloquea el event loop del servidor: otras
 peticiones MCP se atienden entre medias.
 
+El servidor detecta la familia del binario y adapta los comandos:
+'classic' (bend-lang 0.2.x, subcomandos check/run-rs/run-c/gen-c) y
+'v2' (Bend 2.x, CLI `bend file.bend [--check-only|-o]`). Cada familia
+tiene su skill (bend-classic / bend2); la sintaxis de una no sirve
+para la otra.
+
 AVISO DE SEGURIDAD: los programas Bend son código arbitrario. El workdir
 solo fija el directorio de trabajo; NO es un sandbox. Los programas pueden
 usar las capacidades de IO de Bend/HVM con los permisos del usuario que
@@ -211,25 +217,43 @@ async def _run_subprocess(cmd: list[str], timeout: int) -> dict:
 async def _bend_version_str() -> str:
     if "version" in _PROBE_CACHE:
         return str(_PROBE_CACHE["version"])
-    r = await _run_subprocess([BEND_BIN, "--version"], timeout=10)
-    text = (r["stdout"] or r["stderr"]).strip()
-    if r["ok"]:
-        _PROBE_CACHE["version"] = text
+    # classic (0.2.x) acepta --version; Bend 2 lo rechaza (rc=1) y usa
+    # el subcomando `version`. Se prueba en ese orden y se cachea el
+    # primero que salga con rc=0.
+    text = ""
+    for cmd in ([BEND_BIN, "--version"], [BEND_BIN, "version"]):
+        r = await _run_subprocess(cmd, timeout=10)
+        text = (r["stdout"] or r["stderr"]).strip()
+        if r["ok"]:
+            _PROBE_CACHE["version"] = text
+            return text
     return text
 
 
 async def _bend_family() -> str:
-    """Clasifica la familia del binario: 'classic' (0.2.x) o 'unknown'.
+    """Clasifica la familia del binario: 'classic' (bend-lang 0.2.x),
+    'v2' (Bend 2.x, github.com/bendlang/bend) o 'unknown'.
 
-    El skill y la sintaxis documentada asumen la era clásica (bend-lang 0.2.x).
-    'Bend 2' es otro lenguaje con sintaxis distinta; se reporta como unknown.
+    Son dos lenguajes distintos (sintaxis y CLI): cada uno tiene su skill
+    (bend-classic / bend2) y este servidor emite los comandos según la
+    familia detectada.
     """
     v = await _bend_version_str()
-    return "classic" if re.search(r"\b0\.2\.\d+", v) else "unknown"
+    if re.search(r"\b0\.2\.\d+", v):
+        return "classic"
+    if re.search(r"(?i)\bbend\s+2\.\d+", v):
+        return "v2"
+    return "unknown"
 
 
 async def _bend_io_flag_supported(subcmd: str = "run-c") -> bool:
-    """True si el subcomando indicado acepta --io (no existe en 0.2.38)."""
+    """True si el subcomando indicado acepta --io (no existe en 0.2.38).
+
+    En Bend 2 no existe tampoco (la IO se ejecuta por defecto) y no hay
+    subcomandos run-* que sondear, así que se responde sin probe.
+    """
+    if await _bend_family() == "v2":
+        return False
     key = f"io_flag:{subcmd}"
     if key in _PROBE_CACHE:
         return bool(_PROBE_CACHE[key])
@@ -266,7 +290,8 @@ def _validate_run_args(args: list[str] | None) -> str | None:
 
 
 def _classify_syntax_note(family: str, version: str) -> str | None:
-    if family == "classic":
+    if family in ("classic", "v2"):
+        # Cada familia tiene su skill (bend-classic / bend2); no se avisa.
         return None
     return (
         f"AVISO: el binario detectado ({version or 'sin versión'}) no es de la "
@@ -345,14 +370,19 @@ async def bend_read_program(name: str) -> dict:
 
 @mcp.tool()
 async def bend_check(name: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
-    """Valida sintaxis y tipos de un programa .bend SIN ejecutarlo (bend check).
+    """Valida sintaxis, tipos y proofs de un programa .bend SIN ejecutarlo.
 
-    Barato y seguro: úsalo antes de bend_run para depurar errores de compilación.
+    Barato y seguro: úsalo antes de bend_run para depurar errores de
+    compilación. classic: `bend check file`; Bend 2: `bend file --check-only`.
     """
     path = _safe_bend_path(name)
     if not path.exists():
         return {"ok": False, "error": f"No existe {path.name} en el workspace."}
-    result = await _run_subprocess([BEND_BIN, "check", str(path)], timeout=timeout)
+    if await _bend_family() == "v2":
+        cmd = [BEND_BIN, str(path), "--check-only"]
+    else:
+        cmd = [BEND_BIN, "check", str(path)]
+    result = await _run_subprocess(cmd, timeout=timeout)
     result["program"] = path.name
     return result
 
@@ -369,6 +399,8 @@ async def bend_run(
 
     mode: rs (secuencial puro), c (paralelo con HVM2/C, recomendado),
     cu (CUDA, requiere nvcc; si falta se cae a c y se reporta en mode_fallback).
+    En Bend 2 hay un solo runtime: mode no cambia el comando (se reporta
+    en mode_note) y la GPU depende de '!' en el programa.
     args: argumentos de programa (expresiones/valores para main, sin flags).
     El timeout se limita a BEND_MCP_MAX_TIMEOUT (default 300 s).
     """
@@ -380,18 +412,33 @@ async def bend_run(
     if args_error:
         return {"ok": False, "error": args_error}
 
+    family = await _bend_family()
     used_mode = mode
     mode_fallback = None
     if mode == "cu" and not _nvcc_available():
-        used_mode = "c"
-        mode_fallback = "cu->c: nvcc no disponible en esta máquina."
+        if family == "v2":
+            # No hay run-cu que a qué caer: el comando es el mismo y las
+            # llamadas '!' del programa corren en CPU si no hay nvcc.
+            mode_fallback = "cu->cpu: nvcc no disponible; en Bend 2 las llamadas '!' corren en CPU."
+        else:
+            used_mode = "c"
+            mode_fallback = "cu->c: nvcc no disponible en esta máquina."
 
-    subcmd = {"rs": "run-rs", "c": "run-c", "cu": "run-cu"}[used_mode]
-    cmd = [BEND_BIN, subcmd, str(path)]
+    if family == "v2":
+        # CLI de Bend 2: `bend file.bend [args]` (sin subcomandos run-*).
+        cmd = [BEND_BIN, str(path)]
+    else:
+        subcmd = {"rs": "run-rs", "c": "run-c", "cu": "run-cu"}[used_mode]
+        cmd = [BEND_BIN, subcmd, str(path)]
 
     io_skipped = None
     if io:
-        if await _bend_io_flag_supported(subcmd):
+        if family == "v2":
+            io_skipped = (
+                "Bend 2 ejecuta la IO por defecto; el flag --io no existe "
+                "y no hace falta (el parámetro io se ignora)."
+            )
+        elif await _bend_io_flag_supported(subcmd):
             cmd.append("--io")
         else:
             io_skipped = (
@@ -405,6 +452,11 @@ async def bend_run(
     result = await _run_subprocess(cmd, timeout=timeout)
     result["mode"] = used_mode
     result["program"] = path.name
+    if family == "v2":
+        result["mode_note"] = (
+            "Bend 2: un solo runtime (sin run-rs/run-c/run-cu); "
+            "mode no cambia el comando."
+        )
     if mode_fallback:
         result["mode_fallback"] = mode_fallback
     if io_skipped:
@@ -418,30 +470,50 @@ async def bend_compile(
     target: Literal["c", "cu", "auto"] = "auto",
     timeout: int = DEFAULT_TIMEOUT,
 ) -> dict:
-    """Compila un programa Bend a código C o CUDA standalone (gen-c / gen-cu).
+    """Compila un programa Bend a código C o CUDA standalone.
 
-    target: c (C + HVM2, requiere gcc), cu (CUDA, requiere nvcc),
-    auto (por defecto): cu si hay nvcc, si no c. Si pides cu sin nvcc,
-    se cae a c y se reporta en target_fallback.
+    classic: subcomandos gen-c / gen-cu. target: c (C + HVM2, requiere gcc),
+    cu (CUDA, requiere nvcc), auto (por defecto): cu si hay nvcc, si no c.
+    Si pides cu sin nvcc, se cae a c y se reporta en target_fallback.
+    Bend 2: no tiene gen-c/gen-cu; emite fuente C con `-o file.c` (siempre
+    target c; cu se reporta en target_fallback). El binario nativo de
+    Bend 2 (-o sin sufijo) requiere clang y no es target de esta tool.
     """
     path = _safe_bend_path(name)
     if not path.exists():
         return {"ok": False, "error": f"No existe {path.name} en el workspace."}
 
+    family = await _bend_family()
     used_target = target
     target_fallback = None
-    if target == "auto":
-        used_target = "cu" if _nvcc_available() else "c"
-    elif target == "cu" and not _nvcc_available():
-        used_target = "c"
-        target_fallback = "cu->c: nvcc no disponible en esta máquina."
+    output_path = None
 
-    subcmd = "gen-c" if used_target == "c" else "gen-cu"
-    cmd = [BEND_BIN, subcmd, str(path)]
+    if family == "v2":
+        if target == "cu":
+            target_fallback = (
+                "cu->c: Bend 2 no tiene gen-cu; se emite fuente C (-o file.c). "
+                "La GPU en Bend 2 se logra con '!' en el programa y un build "
+                "nativo con clang+nvcc."
+            )
+        # auto -> c en v2 (sin dependencia de toolchain, igual que c).
+        used_target = "c"
+        output_path = path.with_suffix(".c")
+        cmd = [BEND_BIN, str(path), "-o", str(output_path)]
+    else:
+        if target == "auto":
+            used_target = "cu" if _nvcc_available() else "c"
+        elif target == "cu" and not _nvcc_available():
+            used_target = "c"
+            target_fallback = "cu->c: nvcc no disponible en esta máquina."
+        subcmd = "gen-c" if used_target == "c" else "gen-cu"
+        cmd = [BEND_BIN, subcmd, str(path)]
+
     result = await _run_subprocess(cmd, timeout=timeout)
     result["target"] = used_target
     result["target_requested"] = target
     result["program"] = path.name
+    if output_path is not None:
+        result["output_path"] = str(output_path)
     if target_fallback:
         result["target_fallback"] = target_fallback
     return result
@@ -459,6 +531,8 @@ async def bend_benchmark(
     Devuelve mediana y mínimo por modo (más estable que un solo timing).
     runs_per_mode: 1..10 (por defecto 3). cu se salta si no hay nvcc (tener
     nvcc no garantiza GPU: si cu falla, queda con ok=false).
+    En Bend 2 hay un solo runtime: se corre una sola clave "v2" (n
+    repeticiones del mismo comando; no hay rs/c/cu que comparar).
     args: expresiones CLI como en bend_run (ej. ["32"]), útiles cuando el
     programa toma argumentos (main con parámetros).
     El tiempo es el de la ejecución completa del comando y puede incluir
@@ -479,8 +553,12 @@ async def bend_benchmark(
     if args_error is not None:
         return {"ok": False, "error": args_error}
 
+    family = await _bend_family()
     cuda_ok = _nvcc_available()
-    modes: list[Literal["rs", "c", "cu"]] = ["rs", "c"] + (["cu"] if cuda_ok else [])
+    if family == "v2":
+        modes: list[str] = ["v2"]
+    else:
+        modes = ["rs", "c"] + (["cu"] if cuda_ok else [])
     deadline = time.monotonic() + BENCH_BUDGET_SECONDS
 
     runs: dict[str, Any] = {}
@@ -493,7 +571,10 @@ async def bend_benchmark(
             if time.monotonic() > deadline:
                 budget_exceeded = True
                 break
-            r = await bend_run(name=name, mode=m, args=args, timeout=timeout_per_run)
+            # "v2" es la clave de reporte; el parámetro mode no aplica y
+            # bend_run lo ignora, pero se le pasa un valor del Literal.
+            run_mode: Literal["rs", "c", "cu"] = "c" if m == "v2" else m  # type: ignore[assignment]
+            r = await bend_run(name=name, mode=run_mode, args=args, timeout=timeout_per_run)
             last = r
             if not r.get("ok"):
                 failed = True
@@ -516,7 +597,7 @@ async def bend_benchmark(
             entry["command"] = last.get("command", "")
         runs[m] = entry
 
-    if not cuda_ok:
+    if not cuda_ok and family != "v2":
         runs["cu"] = {"ok": False, "skipped": True, "reason": "nvcc no encontrado"}
 
     return {"program": path.name, "runs_per_mode": n, "runs": runs}

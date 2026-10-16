@@ -7,22 +7,30 @@ Claude Code, Cursor u otros clientes MCP compatibles.
 > Nota: el HEAD de ese repositorio hoy describe "Bend 2", otro lenguaje.
 > El enlace apunta al commit con las docs clásicas (2025-06).
 
+El servidor detecta la familia del binario (`classic` 0.2.x o `v2` 2.x)
+y emite los comandos del CLI según ella; cada familia tiene su skill
+(`bend-classic` / `bend2`), y la sintaxis de una no sirve para la otra.
+
 > English: see [README.en.md](README.en.md).
 
 ## Herramientas disponibles
 
 - `bend_check_install` — Verifica si Bend y HVM están instalados: versiones,
-  `bend_family` ("classic" = 0.2.x), `cuda_available` (nvcc),
-  `io_flag_supported`, y `syntax_warning` si el binario no es de la era clásica.
+  `bend_family` ("classic" = 0.2.x, "v2" = Bend 2.x), `cuda_available` (nvcc),
+  `io_flag_supported`, y `syntax_warning` solo si el binario no se reconoce.
 - `bend_write_program` — Escribe código fuente Bend a un archivo `.bend` en el workspace.
 - `bend_read_program` — Lee el código fuente de un programa `.bend` guardado.
 - `bend_list_programs` — Lista los programas `.bend` en el workspace.
-- `bend_check` — Valida sintaxis y tipos SIN ejecutar (`bend check`).
+- `bend_check` — Valida sintaxis y tipos SIN ejecutar (`bend check` en classic,
+  `bend file --check-only` en v2).
 - `bend_run` — Ejecuta un programa guardado (`rs` / `c` / `cu`), con args de CLI opcionales.
-  `cu` sin nvcc cae a `c` y lo reporta en `mode_fallback`.
-- `bend_compile` — Compila a C o CUDA standalone (gen-c / gen-cu). `target="auto"`
-  (default) elige `cu` si hay nvcc, si no `c`.
+  `cu` sin nvcc cae a `c` y lo reporta en `mode_fallback`. En v2 hay un solo
+  runtime: el comando es `bend file [args]` y `mode` no cambia (`mode_note`).
+- `bend_compile` — Compila a C o CUDA standalone (classic: gen-c / gen-cu;
+  v2: emite fuente C con `-o file.c`, `cu` se reporta en `target_fallback`).
+  `target="auto"` (default) elige `cu` si hay nvcc, si no `c` (en v2, siempre `c`).
 - `bend_benchmark` — N corridas por modo (default 3) con mediana y mínimo por modo.
+  En v2 se corre una sola clave `"v2"` (no hay rs/c/cu que comparar).
 
 Todas las tools son `async` y usan `asyncio.create_subprocess_exec`:
 un `bend_run` o `bend_benchmark` largo no bloquea el servidor; otras
@@ -40,7 +48,9 @@ versiones.
 ## Instalación
 
 Requiere Python ≥3.10, y Bend/HVM instalados en el sistema
-(`cargo install bend-lang hvm`). Importante: se requiere `mcp` 1.x
+(`cargo install bend-lang hvm` para la familia classic; para v2, el
+instalador oficial de Bend 2 y `BEND_MCP_BEND_BIN` apuntando a su
+binario, p. ej. `~/.bend/bin/bend`). Importante: se requiere `mcp` 1.x
 (`<2`); en `mcp` 2.x se eliminó `FastMCP` y el servidor no arranca
 (el pin en `pyproject.toml` ya lo garantiza).
 

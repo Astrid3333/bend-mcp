@@ -294,6 +294,8 @@ def test_bend_family_classification(probe_cache):
     probe_cache["version"] = "bend-lang 0.2.38"
     assert call(srv._bend_family()) == "classic"
     probe_cache["version"] = "bend 2.0.1"
+    assert call(srv._bend_family()) == "v2"
+    probe_cache["version"] = "otra cosa 9.9"
     assert call(srv._bend_family()) == "unknown"
 
 
@@ -334,6 +336,147 @@ def test_benchmark_budget_exceeded(monkeypatch, workdir):
     assert rs["ok"] is False
     assert rs["budget_exceeded"] is True
     assert rs["runs_completed"] == 0
+
+
+# --- familia v2 (Bend 2) ----------------------------------------------------
+# El CLI de Bend 2 es distinta (`bend file.bend [--check-only|-o out]`,
+# sin subcomandos check/run-*/gen-*). Estos tests fingen la familia v2 y
+# capturan el comando, sin depender de ~/.bend/bin/bend en la máquina.
+
+def _fake_family(value: str):
+    async def fam() -> str:
+        return value
+
+    return fam
+
+
+def _capture_run(cmds: list, ok: bool = True, stdout: str = ""):
+    async def fake(cmd, timeout):
+        cmds.append(list(cmd))
+        return {
+            "ok": ok,
+            "returncode": 0 if ok else 1,
+            "stdout": stdout,
+            "stderr": "",
+            "elapsed_seconds": 0.01,
+            "command": list(cmd),
+        }
+
+    return fake
+
+
+def test_version_falls_back_to_version_subcmd(monkeypatch, probe_cache):
+    # Bend 2 rechaza `--version` (rc=1) y usa el subcomando `version`.
+    cmds: list = []
+
+    async def fake(cmd, timeout):
+        cmds.append(cmd[1])
+        if cmd[1] == "--version":
+            return {"ok": False, "stdout": "", "stderr": "bend: unknown option --version"}
+        return {"ok": True, "stdout": "bend 2.0.37\n", "stderr": ""}
+
+    monkeypatch.setattr(srv, "_run_subprocess", fake)
+    assert call(srv._bend_version_str()) == "bend 2.0.37"
+    assert cmds == ["--version", "version"]
+    assert probe_cache["version"] == "bend 2.0.37"
+
+
+def test_syntax_note_v2_is_silent():
+    assert srv._classify_syntax_note("classic", "bend-lang 0.2.38") is None
+    assert srv._classify_syntax_note("v2", "bend 2.0.37") is None
+    assert srv._classify_syntax_note("unknown", "???") is not None
+
+
+def test_io_flag_v2_no_probe(monkeypatch, probe_cache):
+    probe_cache["version"] = "bend 2.0.37"
+
+    async def boom(cmd, timeout):
+        raise AssertionError("v2 no debe sondear run-c --help")
+
+    monkeypatch.setattr(srv, "_run_subprocess", boom)
+    assert call(srv._bend_io_flag_supported("run-c")) is False
+
+
+def test_check_v2_uses_check_only(monkeypatch, workdir):
+    cmds: list = []
+    monkeypatch.setattr(srv, "_bend_family", _fake_family("v2"))
+    monkeypatch.setattr(srv, "_run_subprocess", _capture_run(cmds))
+    (workdir / "x.bend").write_text("def main(): pass\n")
+    r = call(srv.bend_check(name="x"))
+    assert r["ok"] is True
+    assert cmds == [[srv.BEND_BIN, str(workdir / "x.bend"), "--check-only"]]
+
+
+def test_run_v2_single_command(monkeypatch, workdir):
+    cmds: list = []
+    monkeypatch.setattr(srv, "_bend_family", _fake_family("v2"))
+    monkeypatch.setattr(srv, "_run_subprocess", _capture_run(cmds, stdout="hola"))
+    monkeypatch.setattr(srv, "_nvcc_available", lambda: False)
+    (workdir / "y.bend").write_text("def main(): pass\n")
+
+    r = call(srv.bend_run(name="y", mode="c", io=True))
+    assert r["ok"] is True
+    assert cmds[0] == [srv.BEND_BIN, str(workdir / "y.bend")]
+    assert r["mode"] == "c"
+    assert "Bend 2" in r["mode_note"]
+    assert "Bend 2" in r["io_skipped"]
+
+    # cu sin nvcc: mismo comando, fallback explicado y mode sin cambiar.
+    r2 = call(srv.bend_run(name="y", mode="cu"))
+    assert cmds[1] == [srv.BEND_BIN, str(workdir / "y.bend")]
+    assert r2["mode"] == "cu"
+    assert "cu->cpu" in r2["mode_fallback"]
+
+
+def test_compile_v2_emits_c_source(monkeypatch, workdir):
+    cmds: list = []
+    monkeypatch.setattr(srv, "_bend_family", _fake_family("v2"))
+    monkeypatch.setattr(srv, "_run_subprocess", _capture_run(cmds))
+    # Con nvcc presente, auto no debe elegir cu en v2.
+    monkeypatch.setattr(srv, "_nvcc_available", lambda: True)
+    (workdir / "z.bend").write_text("def main(): pass\n")
+
+    r = call(srv.bend_compile(name="z", target="auto"))
+    assert r["ok"] is True
+    assert cmds[0] == [srv.BEND_BIN, str(workdir / "z.bend"), "-o", str(workdir / "z.c")]
+    assert r["target"] == "c"
+    assert r["output_path"] == str(workdir / "z.c")
+
+    r2 = call(srv.bend_compile(name="z", target="cu"))
+    assert r2["target"] == "c"
+    assert "gen-cu" in r2["target_fallback"]
+
+
+def test_benchmark_v2_single_mode(monkeypatch, workdir):
+    calls: list = []
+
+    async def fake_bend_run(name, mode, timeout=60, **kw):
+        calls.append(mode)
+        return {"ok": True, "elapsed_seconds": 1.0, "stdout": "", "stderr": "", "command": "fake"}
+
+    monkeypatch.setattr(srv, "bend_run", fake_bend_run)
+    monkeypatch.setattr(srv, "_bend_family", _fake_family("v2"))
+    monkeypatch.setattr(srv, "_nvcc_available", lambda: False)
+    (workdir / "b.bend").write_text("def main(): pass\n")
+    b = call(srv.bend_benchmark(name="b", runs_per_mode=3))
+    assert list(b["runs"]) == ["v2"]
+    assert len(calls) == 3
+    assert b["runs"]["v2"]["ok"] is True
+    assert "cu" not in b["runs"]
+
+
+def test_install_v2_no_syntax_warning(monkeypatch, probe_cache):
+    async def fake(cmd, timeout):
+        return {"ok": True, "returncode": 0, "stdout": "x", "stderr": "",
+                "elapsed_seconds": 0.0, "command": list(cmd)}
+
+    monkeypatch.setattr(srv, "_run_subprocess", fake)
+    monkeypatch.setattr(srv.shutil, "which", lambda p: "/usr/bin/x")
+    probe_cache["version"] = "bend 2.0.37"
+    info = call(srv.bend_check_install())
+    assert info["bend_family"] == "v2"
+    assert "syntax_warning" not in info
+    assert info["io_flag_supported"] is False
 
 
 # --- herencia de env ---------------------------------------------------------
