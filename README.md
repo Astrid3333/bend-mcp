@@ -46,6 +46,10 @@ Requiere Python ≥3.10, y Bend/HVM instalados en el sistema
 pip install -e .
 ```
 
+Soporte probado: Linux/macOS (POSIX). En Windows, el kill de procesos
+hijos en timeouts/cancelaciones solo mata el proceso padre
+(`start_new_session` es POSIX); usa WSL o un contenedor.
+
 ## Configuración en Claude Desktop
 
 Agregar al `claude_desktop_config.json`. Usa rutas absolutas: las apps de

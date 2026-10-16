@@ -185,3 +185,20 @@ def test_benchmark_with_args() -> None:
     assert b["runs"]["rs"]["ok"] is True
     assert b["runs"]["rs"]["stdout"].strip() == "Result: 42"
     assert b["runs"]["c"]["stdout"].strip() == "Result: 42"
+
+
+def test_benchmark_invalid_args_rejected() -> None:
+    """bend_benchmark rechaza args inválidos (rama args_error) sin correr."""
+    code = "def main():\n  return 0\n"
+    call(srv.bend_write_program(name="t_bench_badargs", code=code))
+    b = call(srv.bend_benchmark(name="t_bench_badargs", args=["--help"]))
+    assert b["ok"] is False
+    assert "empieza con '-'" in b["error"]
+
+
+def test_benchmark_non_numeric_runs_per_mode_defaults() -> None:
+    """runs_per_mode no numérico cae a 3 en vez de lanzar ValueError."""
+    code = "def main():\n  return 0\n"
+    call(srv.bend_write_program(name="t_bench_npm", code=code))
+    b = call(srv.bend_benchmark(name="t_bench_npm", runs_per_mode="abc"))
+    assert b["runs_per_mode"] == 3

@@ -67,7 +67,7 @@ def test_timeout_kills_and_reports():
     assert "Timeout tras 1s" in r["stderr"]
 
 
-def test_timeout_output_is_str_not_bytes(workdir):
+def test_timeout_output_is_str_not_bytes():
     """Regresión: tras el kill, communicate puede devolver bytes en
     TimeoutExpired; el resultado final debe ser str con la nota de timeout."""
     r = call(srv._run_subprocess(["bash", "-c", "printf partial; exec sleep 30"], timeout=1))

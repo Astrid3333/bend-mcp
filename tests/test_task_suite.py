@@ -1,12 +1,8 @@
 """Banco de tareas Bend: cada programa se guarda, ejecuta y se compara
 contra la salida esperada (verificada con Octave y con el CLI de Bend
-0.2.38 antes de codificar).
-
-Corrige (review pasted-6): needs_bend para CI sin bend, overwrite=True
-para re-ejecución standalone, comparación exacta de la línea `Result: X`,
-y parametrización rs/c para comprobar que el backend paralelo da los
-mismos resultados.
-"""
+0.2.38 antes de codificar). Necesita needs_bend, overwrite=True,
+comparación exacta de la línea `Result: X`, y parametrización rs/c
+para comprobar que el backend paralelo da los mismos resultados."""
 
 import re
 import shutil
@@ -17,17 +13,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# conftest ANTES de importar el servidor: fija BEND_MCP_WORKDIR a un
+# temporal también al correr este archivo como script.
+from conftest import call
+
 import bend_mcp.server as srv
 from bend_mcp.server import bend_write_program, bend_run
 
 needs_bend = pytest.mark.skipif(
     shutil.which(srv.BEND_BIN) is None, reason="binario 'bend' no disponible"
 )
-
-
-def call(coro):
-    import asyncio
-    return asyncio.run(coro)
 
 
 # (id, codigo_bend, salida_esperada, args_cli)

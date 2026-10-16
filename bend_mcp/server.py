@@ -471,7 +471,10 @@ async def bend_benchmark(
     if not path.exists():
         return {"ok": False, "error": f"No existe {path.name} en el workspace."}
 
-    n = max(1, min(int(runs_per_mode), 10))
+    try:
+        n = max(1, min(int(runs_per_mode), 10))
+    except (TypeError, ValueError):
+        n = 3
     args_error = _validate_run_args(args)
     if args_error is not None:
         return {"ok": False, "error": args_error}
