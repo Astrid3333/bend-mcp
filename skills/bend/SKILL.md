@@ -77,7 +77,7 @@ antes de incluirse:
 | `examples/fib_iterative.bend` | loop `bend` + `when` + `fork` (paralelismo dentro de loops) | `Result: 832040` |
 | `examples/parallel_sum.bend` | recursión divide-y-conquer (HVM la paraleliza sola, sin `fork`) | `Result: 500500` en rs y c |
 | `examples/list_sum.bend` | `List(u24)`, literal `[1, 2, 3]`, match con `case List/Nil` | `Result: 6` |
-| `examples/hello_io.bend` | IO completa: `-> IO(u24)`, `* <-`, `wrap(0)` (mode="c") | Imprime el texto (lo importante); el `Result: λa (a IO/...` es ruido normal |
+| `examples/hello_io.bend` | IO completa: `-> IO(u24)`, `with IO:`, `* <-`, `wrap(0)` (mode="c") | Imprime el texto (lo importante); el `Result: λa (a IO/...` es ruido normal |
 | `examples/add_args.bend` | argumentos de CLI vía `bend_run(args=[...])` (params SIN anotar tipos) | `args=["+5","+3"]` → `Result: +8` |
 
 ## ¿Se paraleliza? (tabla de decisión)

@@ -49,13 +49,18 @@ pip install -e .
 
 ## Claude Desktop configuration
 
-Add to `claude_desktop_config.json`:
+Add to `claude_desktop_config.json`. Use absolute paths: desktop apps
+often do not inherit your venv PATH or `~/.cargo/bin`.
+With `pipx install .` the executable ends up in a stable location.
 
 ```json
 {
   "mcpServers": {
     "bend-mcp": {
-      "command": "bend-mcp"
+      "command": "/path/to/venv/bin/bend-mcp",
+      "env": {
+        "BEND_MCP_BEND_BIN": "/home/YOUR_USER/.cargo/bin/bend"
+      }
     }
   }
 }
@@ -78,8 +83,9 @@ Add to `claude_desktop_config.json`:
 ## Security notice
 
 Bend programs are arbitrary code. The workdir only sets the working
-directory; it is **not a sandbox**: programs run with the permissions of
-the user running the server. Do not expose the server to untrusted input
+directory; it is **not a sandbox**: a Bend program can read and write
+files (`IO/open`, `IO/write`, `IO/read`) with the permissions of the
+user running the server. Do not expose the server to untrusted input
 without container/system limits.
 
 ## Tests
@@ -90,7 +96,7 @@ pytest
 ```
 
 Tests that need the `bend` binary skip automatically when it is not on PATH
-(CI installs the official release binary).
+(CI installs bend-lang 0.2.38 via cargo).
 
 ## Examples
 

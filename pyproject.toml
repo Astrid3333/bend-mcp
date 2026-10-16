@@ -22,5 +22,8 @@ dev = [
     "pytest>=8",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["bend_mcp"]
+[project.urls]
+Repository = "https://github.com/Astrid3333/bend-mcp"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

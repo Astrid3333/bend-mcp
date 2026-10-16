@@ -48,13 +48,18 @@ pip install -e .
 
 ## Configuración en Claude Desktop
 
-Agregar al `claude_desktop_config.json`:
+Agregar al `claude_desktop_config.json`. Usa rutas absolutas: las apps de
+escritorio suelen no heredar el PATH de tu venv ni `~/.cargo/bin`.
+Con `pipx install .` el ejecutable queda en un lugar estable.
 
 ```json
 {
   "mcpServers": {
     "bend-mcp": {
-      "command": "bend-mcp"
+      "command": "/ruta/al/venv/bin/bend-mcp",
+      "env": {
+        "BEND_MCP_BEND_BIN": "/home/TU_USUARIO/.cargo/bin/bend"
+      }
     }
   }
 }
@@ -77,9 +82,10 @@ Agregar al `claude_desktop_config.json`:
 ## Aviso de seguridad
 
 Los programas Bend son código arbitrario. El workdir solo fija el directorio
-de trabajo; **NO es un sandbox**: los programas corren con los permisos del
-usuario que ejecuta el servidor. No expongas el servidor a entradas no
-confiables sin contenedor o límites del sistema.
+de trabajo; **NO es un sandbox**: un programa Bend puede leer y escribir
+archivos (`IO/open`, `IO/write`, `IO/read`) con los permisos del usuario
+que ejecuta el servidor. No expongas el servidor a entradas no confiables
+sin contenedor o límites del sistema.
 
 ## Tests
 
@@ -89,7 +95,7 @@ pytest
 ```
 
 Los tests que necesitan el binario `bend` se saltan automáticamente si no
-está en el PATH (en CI se instala el binario oficial de las releases).
+está en el PATH (en CI se instala bend-lang 0.2.38 con cargo).
 
 ## Ejemplo
 

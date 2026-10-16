@@ -2,7 +2,7 @@
 
 Todo este archivo fue ejecutado contra `bend-lang 0.2.38` (`bend run-rs` /
 `bend run-c`) antes de documentarse. No mezclar con docs de "Bend 2"
-(bendlang/bend en 2026), que es otro lenguaje con leyes/proofs.
+(bendlang/bend en 2026), que es otro lenguaje.
 
 ## Programa y funciones
 
@@ -137,7 +137,7 @@ def main() -> u24:
 ## Paralelismo
 
 Bend paraleliza la recursión de divide-y-vencerás automáticamente: el mismo
-codigo corre secuencial en `run-rs` y en paralelo en `run-c`/`run-cu`, sin
+código corre secuencial en `run-rs` y en paralelo en `run-c`/`run-cu`, sin
 cambiar el programa. Ejemplo verificado (sin `fork`, paralelismo implícito):
 
 ```py
