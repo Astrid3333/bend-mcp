@@ -9,6 +9,7 @@ symlinks solo corren en POSIX.
 Las tools y helpers async se invocan vía `call()` (conftest).
 """
 
+import asyncio
 import os
 import subprocess
 import time
@@ -109,6 +110,28 @@ def test_kill_tree_kills_grandchild(workdir):
     srv._kill_tree(proc)
     proc.wait(timeout=5)
     assert _pid_gone(gc_pid)
+
+
+@needs_posix
+def test_cancel_kills_child(workdir, tmp_path):
+    """Si el cliente MCP cancela la llamada, el subprocess no debe quedar
+    huérfano: CancelledError debe matar el process group."""
+    pidfile = tmp_path / "c.pid"
+
+    async def scenario():
+        t = asyncio.create_task(srv._run_subprocess(
+            ["bash", "-c", f"echo $$ > {pidfile}; exec sleep 30"], timeout=60))
+        for _ in range(100):
+            if pidfile.exists() and pidfile.read_text().strip():
+                break
+            await asyncio.sleep(0.05)
+        pid = int(pidfile.read_text())
+        t.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t
+        return pid
+
+    assert _pid_gone(call(scenario()))
 
 
 # --- truncado de salida y clamps -------------------------------------------

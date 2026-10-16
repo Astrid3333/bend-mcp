@@ -172,20 +172,25 @@ async def _run_subprocess(cmd: list[str], timeout: int) -> dict:
 
     timed_out = False
     try:
-        await asyncio.wait_for(asyncio.shield(wait_task), timeout=timeout)
-    except asyncio.TimeoutError:
-        timed_out = True
-        _kill_tree(proc)
         try:
-            await asyncio.wait_for(asyncio.shield(wait_task), timeout=5)
+            await asyncio.wait_for(asyncio.shield(wait_task), timeout=timeout)
         except asyncio.TimeoutError:
-            pass
-
-    try:
-        out = await asyncio.wait_for(out_task, timeout=2)
-        err = await asyncio.wait_for(err_task, timeout=2)
-    except asyncio.TimeoutError:
-        out, err = b"", b""
+            timed_out = True
+            _kill_tree(proc)
+            try:
+                await asyncio.wait_for(asyncio.shield(wait_task), timeout=5)
+            except asyncio.TimeoutError:
+                pass
+        try:
+            out = await asyncio.wait_for(out_task, timeout=2)
+            err = await asyncio.wait_for(err_task, timeout=2)
+        except asyncio.TimeoutError:
+            out, err = b"", b""
+    except asyncio.CancelledError:
+        _kill_tree(proc)
+        for t in (out_task, err_task, wait_task):
+            t.cancel()
+        raise
 
     elapsed = time.monotonic() - start
 
@@ -456,6 +461,8 @@ async def bend_benchmark(
     El tiempo es el de la ejecución completa del comando y puede incluir
     la compilación del backend; úsalo para comparar, no como tiempo puro
     de cómputo. Hay un presupuesto total (BEND_MCP_BENCH_BUDGET, 600 s).
+    Nota: si otro programa corre a la vez en el servidor, los tiempos
+    pueden verse afectados por la competencia de CPU.
     """
     path = _safe_bend_path(name)
     if not path.exists():
