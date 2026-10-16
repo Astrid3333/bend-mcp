@@ -16,10 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # conftest ANTES de importar el servidor: fija BEND_MCP_WORKDIR a un
 # temporal también al correr este archivo como script o como módulo.
-from conftest import call
+# isort/ruff NO deben reordenar estos imports (el orden es intencional).
+from conftest import call  # noqa: E402  # isort: skip
 
-import bend_mcp.server as srv
-from bend_mcp.server import bend_write_program, bend_run
+import bend_mcp.server as srv  # noqa: E402  # isort: skip
+from bend_mcp.server import bend_write_program, bend_run  # noqa: E402  # isort: skip
 
 needs_bend = pytest.mark.skipif(
     shutil.which(srv.BEND_BIN) is None, reason="binario 'bend' no disponible"
