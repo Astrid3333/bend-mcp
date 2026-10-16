@@ -23,7 +23,7 @@ def main() -> u24:
 
 | Tipo | Rango / notas |
 |---|---|
-| `u24` | Entero sin signo 24 bits (máx. 16 777 215; desborda silenciosamente arriba) |
+| `u24` | Entero sin signo 24 bits (máx. 16 777 215; desborda silenciosamente arriba; negativos envuelven: `-2` → `16777214`) |
 | `i24` | Entero con signo 24 bits |
 | `f24` | Flotante 24 bits (NO existe f32/f64 en 0.2.x) |
 
@@ -51,8 +51,13 @@ def fib(n: u24) -> u24:
 ```
 
 - `switch` hace pattern match sobre enteros; `case _:` es el default.
+- `elif` es la palabra clave para if-else-if (NO `else if`; verificado:
+  `elif k == 1:` compila, `else if k == 1:` da `expected: ':'`).
 - `when` NO sirve como if normal (da "expected: statement"): solo existe
   dentro de un loop `bend` (ver abajo).
+- Defs anidadas dentro de `main` NO pueden llamarse entre sí (da
+  `attempt to clone a non-affine global reference`); usar defs top-level
+  cuando una función auxiliar necesita llamar a otra (verificado).
 
 ## Tipos de datos (ADTs)
 
@@ -107,6 +112,8 @@ def main() -> u24:
   El `~` marca campos lineales (consumidos una vez).
   En anotaciones usar paréntesis: `List(u24)`. `List u24` NO compila
   (`expected ','`). En match: `case List/Nil:` / `case List/Cons:`.
+  `import List` falla sin path de módulo; el match nativo `List/Nil`
+  funciona sin import (verificado).
 - `Tree(T)`: `Node {~left, ~right}`, `Leaf {value: T}`.
 - `Maybe(T)`: `Some {value}`, `None`.
 - `Result(o, e)`: `Ok {val}`, `Err {val}`.
