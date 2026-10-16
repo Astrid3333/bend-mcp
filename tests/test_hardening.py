@@ -13,6 +13,7 @@ import asyncio
 import os
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 from conftest import call
@@ -295,6 +296,15 @@ def test_bend_family_classification(probe_cache):
     assert call(srv._bend_family()) == "classic"
     probe_cache["version"] = "bend 2.0.1"
     assert call(srv._bend_family()) == "v2"
+    # Salidas sin prefijo "bend" y con "bend-lang 2.x" también son v2.
+    probe_cache["version"] = "2.0.1"
+    assert call(srv._bend_family()) == "v2"
+    probe_cache["version"] = "bend-lang 2.1"
+    assert call(srv._bend_family()) == "v2"
+    # Regresión: "bend 2.0.2.1" contiene el patrón 0.2.N; con classic
+    # primero se clasificaba mal. v2 va antes.
+    probe_cache["version"] = "bend 2.0.2.1"
+    assert call(srv._bend_family()) == "v2"
     probe_cache["version"] = "otra cosa 9.9"
     assert call(srv._bend_family()) == "unknown"
 
@@ -417,21 +427,41 @@ def test_run_v2_single_command(monkeypatch, workdir):
     r = call(srv.bend_run(name="y", mode="c", io=True))
     assert r["ok"] is True
     assert cmds[0] == [srv.BEND_BIN, str(workdir / "y.bend")]
-    assert r["mode"] == "c"
+    assert r["mode"] == "v2"  # en v2 se reporta "v2", no el modo pedido
     assert "Bend 2" in r["mode_note"]
     assert "Bend 2" in r["io_skipped"]
 
-    # cu sin nvcc: mismo comando, fallback explicado y mode sin cambiar.
+    # cu sin nvcc: mismo comando, fallback explicado y mode="v2".
     r2 = call(srv.bend_run(name="y", mode="cu"))
     assert cmds[1] == [srv.BEND_BIN, str(workdir / "y.bend")]
-    assert r2["mode"] == "cu"
+    assert r2["mode"] == "v2"
     assert "cu->cpu" in r2["mode_fallback"]
+
+
+def test_run_v2_args_appended(monkeypatch, workdir):
+    # En v2 los args van al runtime (IO.args), no a main; se agregan al final.
+    cmds: list = []
+    monkeypatch.setattr(srv, "_bend_family", _fake_family("v2"))
+    monkeypatch.setattr(srv, "_run_subprocess", _capture_run(cmds, stdout="8"))
+    (workdir / "sum.bend").write_text("def main(): pass\n")
+    r = call(srv.bend_run(name="sum", args=["3", "5"]))
+    assert r["ok"] is True
+    assert cmds[0] == [srv.BEND_BIN, str(workdir / "sum.bend"), "3", "5"]
 
 
 def test_compile_v2_emits_c_source(monkeypatch, workdir):
     cmds: list = []
     monkeypatch.setattr(srv, "_bend_family", _fake_family("v2"))
-    monkeypatch.setattr(srv, "_run_subprocess", _capture_run(cmds))
+
+    async def fake(cmd, timeout):
+        cmds.append(list(cmd))
+        # Simula que `bend file -o file.c` escribe el .c en el workdir.
+        out = cmd[cmd.index("-o") + 1]
+        Path(out).write_text("int main(void){return 0;}\n")
+        return {"ok": True, "returncode": 0, "stdout": "", "stderr": "",
+                "elapsed_seconds": 0.01, "command": list(cmd)}
+
+    monkeypatch.setattr(srv, "_run_subprocess", fake)
     # Con nvcc presente, auto no debe elegir cu en v2.
     monkeypatch.setattr(srv, "_nvcc_available", lambda: True)
     (workdir / "z.bend").write_text("def main(): pass\n")
@@ -441,6 +471,9 @@ def test_compile_v2_emits_c_source(monkeypatch, workdir):
     assert cmds[0] == [srv.BEND_BIN, str(workdir / "z.bend"), "-o", str(workdir / "z.c")]
     assert r["target"] == "c"
     assert r["output_path"] == str(workdir / "z.c")
+    # El .c no lo lista list_programs: el tool devuelve su contenido.
+    assert "int main" in r["output_preview"]
+    assert r["output_bytes"] > 0
 
     r2 = call(srv.bend_compile(name="z", target="cu"))
     assert r2["target"] == "c"

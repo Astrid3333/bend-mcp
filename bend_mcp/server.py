@@ -239,10 +239,14 @@ async def _bend_family() -> str:
     familia detectada.
     """
     v = await _bend_version_str()
+    # v2 ANTES que classic: una versión tipo "bend 2.0.2.1" contiene el
+    # patrón 0.2.N y casaría con classic si se mirara ese check primero.
+    # Cubre también salidas sin el prefijo "bend" (p. ej. "2.0.1").
+    if (re.search(r"(?i)\bbend(?:[-_\s]?lang)?[-\s]+v?2\.\d+", v)
+            or re.match(r"\s*v?2\.\d+", v)):
+        return "v2"
     if re.search(r"\b0\.2\.\d+", v):
         return "classic"
-    if re.search(r"(?i)\bbend\s+2\.\d+", v):
-        return "v2"
     return "unknown"
 
 
@@ -401,7 +405,11 @@ async def bend_run(
     cu (CUDA, requiere nvcc; si falta se cae a c y se reporta en mode_fallback).
     En Bend 2 hay un solo runtime: mode no cambia el comando (se reporta
     en mode_note) y la GPU depende de '!' en el programa.
-    args: argumentos de programa (expresiones/valores para main, sin flags).
+    args: argumentos de programa, SIN flags. Semántica distinta por familia:
+    classic los aplica como parámetros posicionales de main
+    (`bend run-c f.bend 3 5` → main(3, 5)); en Bend 2 NO se aplican a main
+    (main no recibe parámetros por CLI): quedan como args del runtime y el
+    programa los lee con `IO.args`.
     El timeout se limita a BEND_MCP_MAX_TIMEOUT (default 300 s).
     """
     path = _safe_bend_path(name)
@@ -450,12 +458,12 @@ async def bend_run(
         cmd.extend(args)
 
     result = await _run_subprocess(cmd, timeout=timeout)
-    result["mode"] = used_mode
+    result["mode"] = "v2" if family == "v2" else used_mode
     result["program"] = path.name
     if family == "v2":
         result["mode_note"] = (
             "Bend 2: un solo runtime (sin run-rs/run-c/run-cu); "
-            "mode no cambia el comando."
+            "se reporta mode='v2'."
         )
     if mode_fallback:
         result["mode_fallback"] = mode_fallback
@@ -514,6 +522,12 @@ async def bend_compile(
     result["program"] = path.name
     if output_path is not None:
         result["output_path"] = str(output_path)
+        # El .c queda en el workdir y list_programs solo lista .bend:
+        # se devuelve el contenido (capsado) para no dejarlo invisible.
+        if result.get("ok") and output_path.exists():
+            data = output_path.read_bytes()
+            result["output_bytes"] = len(data)
+            result["output_preview"] = _cap(data.decode("utf-8", errors="replace"))
     if target_fallback:
         result["target_fallback"] = target_fallback
     return result

@@ -4,8 +4,8 @@ Servidor MCP (Model Context Protocol) que expone el lenguaje [Bend](https://gith
 (era clásica 0.2.x, HVM2 / interaction combinators) a Claude Desktop,
 Claude Code, Cursor u otros clientes MCP compatibles.
 
-> Nota: el HEAD de ese repositorio hoy describe "Bend 2", otro lenguaje.
-> El enlace apunta al commit con las docs clásicas (2025-06).
+> Nota: el enlace apunta al commit con las docs clásicas (2025-06);
+> el HEAD del repo describe "Bend 2" (2.x), soportada aquí como familia `v2`.
 
 El servidor detecta la familia del binario (`classic` 0.2.x o `v2` 2.x)
 y emite los comandos del CLI según ella; cada familia tiene su skill
@@ -25,9 +25,12 @@ y emite los comandos del CLI según ella; cada familia tiene su skill
   `bend file --check-only` en v2).
 - `bend_run` — Ejecuta un programa guardado (`rs` / `c` / `cu`), con args de CLI opcionales.
   `cu` sin nvcc cae a `c` y lo reporta en `mode_fallback`. En v2 hay un solo
-  runtime: el comando es `bend file [args]` y `mode` no cambia (`mode_note`).
+  runtime: el comando es `bend file [args]` y el resultado reporta `mode="v2"`
+  (`mode_note`). Semántica de `args`: en classic son parámetros posicionales
+  de `main`; en v2 NO se aplican a `main` (el programa los lee con `IO.args`).
 - `bend_compile` — Compila a C o CUDA standalone (classic: gen-c / gen-cu;
-  v2: emite fuente C con `-o file.c`, `cu` se reporta en `target_fallback`).
+  v2: emite fuente C con `-o file.c`, `cu` se reporta en `target_fallback`;
+  el resultado incluye `output_preview` con el contenido del `.c`).
   `target="auto"` (default) elige `cu` si hay nvcc, si no `c` (en v2, siempre `c`).
 - `bend_benchmark` — N corridas por modo (default 3) con mediana y mínimo por modo.
   En v2 se corre una sola clave `"v2"` (no hay rs/c/cu que comparar).

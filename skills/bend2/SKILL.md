@@ -75,6 +75,12 @@ compilan; `-o file.js` + node sí funciona), `node` y `gcc` presentes.
 GPU: el flag `!` (ej. `pow2!(20n)`) necesita CUDA/NVIDIA en Linux; en
 esta máquina (RX 590 AMD, sin nvcc) `!` cae a CPU.
 
+Args de CLI: `bend file.bend 3 5` **no** los pasa a `main` (en Bend 2,
+`main` no recibe parámetros por CLI como en classic); quedan como args
+del runtime y el programa los lee con `IO.args` dentro de un bloque
+`do IO<Unit>:`, p. ej.
+`args : List<String> <- IO.args`.
+
 ## Flujo de trabajo
 
 1. **`bend version`** — confirmar que es 2.x. Si imprime `bend-lang 0.2.x`,
