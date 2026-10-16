@@ -22,9 +22,10 @@ verificada localmente contra `bend 2.0.37` (`~/.bend/bin/bend`).
 
 **Este skill es SOLO para Bend 2 (2.x).** El lenguaje clásico
 (`bend-lang` 0.2.x, HVM2, subcomandos `run-c`/`run-rs`/`gen-c`) es OTRO
-lenguaje con sintaxis distinta: para ese usar el skill `bend-classic` y el
-servidor MCP `bend-mcp`. No emitir sintaxis de una versión para el binario
-de la otra.
+lenguaje con sintaxis distinta: para ese usar el skill `bend-classic`. El
+servidor MCP `bend-mcp` atiende ambas familias según `BEND_MCP_BEND_BIN`
+(clásica por defecto; v2 con `~/.bend/bin/bend`). No emitir sintaxis de una
+versión para el binario de la otra.
 
 ## Cuándo usar
 
@@ -48,9 +49,13 @@ export PATH="$HOME/.bend/bin:$PATH"
 bend version   # -> bend 2.0.37
 ```
 
-2. Sin MCP por ahora: este skill usa el CLI directamente. El servidor
-   `bend-mcp` (tools `bend_run`, `bend_check`…) habla la CLI clásica
-   (`bend check`, `bend run-c`, `bend gen-c`) y **NO sirve para Bend 2**.
+2. El servidor MCP `bend-mcp` (tools `bend_run`, `bend_check`…) SÍ sirve
+   para Bend 2 si se lanza con `BEND_MCP_BEND_BIN=~/.bend/bin/bend`: detecta
+   la familia y usa la CLI v2 (`bend file --check-only`, `bend file`,
+   benchmark en modo único `v2`). Con el default (`bend` de PATH = 0.2.x)
+   habla la CLI clásica. Un server = una familia; verificar con
+   `bend_check_install` → `bend_family`. (Verificado en vivo con
+   bend 2.0.37, 2026-10-16.)
 
 ## Cómo se ejecuta Bend 2 (CLI distinta a la clásica)
 
