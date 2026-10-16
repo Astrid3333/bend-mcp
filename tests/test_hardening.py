@@ -5,6 +5,8 @@ no bytes), árbol de procesos, truncado de salida, validación de nombres,
 symlinks, args de CLI, caché de probes, límites de código y presupuesto
 del benchmark. No necesitan el binario `bend`. Los tests de killpg y
 symlinks solo corren en POSIX.
+
+Las tools y helpers async se invocan vía `call()` (conftest).
 """
 
 import os
@@ -12,6 +14,7 @@ import subprocess
 import time
 
 import pytest
+from conftest import call
 
 import bend_mcp.server as srv
 
@@ -57,7 +60,7 @@ def _pid_gone(pid: int, timeout: float = 3.0) -> bool:
 # --- timeout y árbol de procesos -------------------------------------------
 
 def test_timeout_kills_and_reports():
-    r = srv._run_subprocess(["bash", "-c", "printf partial; exec sleep 30"], timeout=1)
+    r = call(srv._run_subprocess(["bash", "-c", "printf partial; exec sleep 30"], timeout=1))
     assert r["ok"] is False
     assert r["returncode"] is None
     assert "Timeout tras 1s" in r["stderr"]
@@ -66,7 +69,7 @@ def test_timeout_kills_and_reports():
 def test_timeout_output_is_str_not_bytes(workdir):
     """Regresión: tras el kill, communicate puede devolver bytes en
     TimeoutExpired; el resultado final debe ser str con la nota de timeout."""
-    r = srv._run_subprocess(["bash", "-c", "printf partial; exec sleep 30"], timeout=1)
+    r = call(srv._run_subprocess(["bash", "-c", "printf partial; exec sleep 30"], timeout=1))
     assert isinstance(r["stdout"], str)
     assert isinstance(r["stderr"], str)
     assert r["stdout"] == "partial"
@@ -74,7 +77,7 @@ def test_timeout_output_is_str_not_bytes(workdir):
 
 
 def test_missing_binary_message(workdir):
-    r = srv._run_subprocess(["definitely-not-a-binary-xyz", "--version"], timeout=5)
+    r = call(srv._run_subprocess(["definitely-not-a-binary-xyz", "--version"], timeout=5))
     assert r["ok"] is False
     assert "No se encontró el binario" in r["stderr"]
 
@@ -125,9 +128,9 @@ def test_cap_truncates(monkeypatch):
 
 def test_run_subprocess_caps_output(monkeypatch):
     monkeypatch.setattr(srv, "MAX_OUTPUT_CHARS", 100)
-    r = srv._run_subprocess(
+    r = call(srv._run_subprocess(
         ["bash", "-c", "head -c 5000 /dev/zero | tr '\\0' x"], timeout=10
-    )
+    ))
     assert r["ok"] is True
     assert "truncada" in r["stdout"] and len(r["stdout"]) < 300
 
@@ -244,41 +247,38 @@ def test_args_ok_expression():
 # --- caché de probes --------------------------------------------------------
 
 def test_probe_cache_not_set_on_failure(monkeypatch, probe_cache):
-    monkeypatch.setattr(
-        srv, "_run_subprocess",
-        lambda cmd, timeout: {"ok": False, "stdout": "", "stderr": "boom"},
-    )
-    assert srv._bend_version_str() == "boom"
+    async def fake(cmd, timeout):
+        return {"ok": False, "stdout": "", "stderr": "boom"}
+    monkeypatch.setattr(srv, "_run_subprocess", fake)
+    assert call(srv._bend_version_str()) == "boom"
     assert "version" not in probe_cache
 
 
 def test_probe_cache_set_on_success(monkeypatch, probe_cache):
-    monkeypatch.setattr(
-        srv, "_run_subprocess",
-        lambda cmd, timeout: {"ok": True, "stdout": "bend-lang 0.2.38\n", "stderr": ""},
-    )
-    assert srv._bend_version_str() == "bend-lang 0.2.38"
+    async def fake(cmd, timeout):
+        return {"ok": True, "stdout": "bend-lang 0.2.38\n", "stderr": ""}
+    monkeypatch.setattr(srv, "_run_subprocess", fake)
+    assert call(srv._bend_version_str()) == "bend-lang 0.2.38"
     assert probe_cache["version"] == "bend-lang 0.2.38"
     # Segunda llamada usa la caché (el monkeypatch no importa).
-    monkeypatch.setattr(
-        srv, "_run_subprocess",
-        lambda cmd, timeout: (_ for _ in ()).throw(AssertionError("no debió volver a correr")),
-    )
-    assert srv._bend_version_str() == "bend-lang 0.2.38"
+    async def boom(cmd, timeout):
+        raise AssertionError("no debió volver a correr")
+    monkeypatch.setattr(srv, "_run_subprocess", boom)
+    assert call(srv._bend_version_str()) == "bend-lang 0.2.38"
 
 
 def test_bend_family_classification(probe_cache):
     probe_cache["version"] = "bend-lang 0.2.38"
-    assert srv._bend_family() == "classic"
+    assert call(srv._bend_family()) == "classic"
     probe_cache["version"] = "bend 2.0.1"
-    assert srv._bend_family() == "unknown"
+    assert call(srv._bend_family()) == "unknown"
 
 
 # --- límites de código y benchmark ------------------------------------------
 
 def test_write_rejects_oversized_code(workdir, monkeypatch):
     monkeypatch.setattr(srv, "MAX_CODE_BYTES", 5)
-    r = srv.bend_write_program(name="grande", code="def main(): pass\n")
+    r = call(srv.bend_write_program(name="grande", code="def main(): pass\n"))
     assert r["ok"] is False
     assert "excede el máximo" in r["error"]
 
@@ -286,27 +286,27 @@ def test_write_rejects_oversized_code(workdir, monkeypatch):
 def test_benchmark_runs_per_mode_clamped(monkeypatch, workdir):
     calls = []
 
-    def fake_bend_run(name, mode, timeout=60, **kw):
+    async def fake_bend_run(name, mode, timeout=60, **kw):
         calls.append(mode)
         return {"ok": True, "elapsed_seconds": 1.0, "stdout": "", "stderr": "", "command": "fake"}
 
     monkeypatch.setattr(srv, "bend_run", fake_bend_run)
     monkeypatch.setattr(srv, "_nvcc_available", lambda: False)
     (workdir / "b.bend").write_text("def main(): pass\n")
-    b = srv.bend_benchmark(name="b", runs_per_mode=99)
+    b = call(srv.bend_benchmark(name="b", runs_per_mode=99))
     assert b["runs_per_mode"] == 10
     assert len(calls) == 20  # 10 rs + 10 c
 
 
 def test_benchmark_budget_exceeded(monkeypatch, workdir):
-    def fake_bend_run(name, mode, timeout=60, **kw):
+    async def fake_bend_run(name, mode, timeout=60, **kw):
         return {"ok": True, "elapsed_seconds": 1.0, "stdout": "", "stderr": "", "command": "fake"}
 
     monkeypatch.setattr(srv, "bend_run", fake_bend_run)
     monkeypatch.setattr(srv, "_nvcc_available", lambda: False)
     monkeypatch.setattr(srv, "BENCH_BUDGET_SECONDS", -1)
     (workdir / "b.bend").write_text("def main(): pass\n")
-    b = srv.bend_benchmark(name="b", runs_per_mode=3)
+    b = call(srv.bend_benchmark(name="b", runs_per_mode=3))
     rs = b["runs"]["rs"]
     assert rs["ok"] is False
     assert rs["budget_exceeded"] is True

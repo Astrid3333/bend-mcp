@@ -24,6 +24,10 @@ Claude Code, Cursor u otros clientes MCP compatibles.
   (default) elige `cu` si hay nvcc, si no `c`.
 - `bend_benchmark` — N corridas por modo (default 3) con mediana y mínimo por modo.
 
+Todas las tools son `async` y usan `asyncio.create_subprocess_exec`:
+un `bend_run` o `bend_benchmark` largo no bloquea el servidor; otras
+peticiones MCP se atienden entre medias.
+
 ## Skill para agentes
 
 `skills/bend/` contiene un skill instalable para agentes (Claude Code,

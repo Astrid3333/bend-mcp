@@ -5,6 +5,11 @@ Servidor MCP (Model Context Protocol) que expone el lenguaje Bend
 (HigherOrderCO, corre sobre HVM2 / interaction combinators) como
 herramientas invocables desde Claude Desktop u otro cliente MCP.
 
+Todas las tools son `async` y ejecutan el CLI de Bend con
+`asyncio.create_subprocess_exec`, de modo que una ejecución larga
+(p. ej. bend_benchmark) no bloquea el event loop del servidor: otras
+peticiones MCP se atienden entre medias.
+
 AVISO DE SEGURIDAD: los programas Bend son código arbitrario. El workdir
 solo fija el directorio de trabajo; NO es un sandbox. Los programas pueden
 usar las capacidades de IO de Bend/HVM con los permisos del usuario que
@@ -12,12 +17,12 @@ ejecuta este servidor. No lo expongas a entradas no confiables sin
 contenedor/límites del sistema.
 """
 
+import asyncio
 import os
 import re
 import shutil
 import signal
 import statistics
-import subprocess
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -57,6 +62,7 @@ _ENV_KEEP = {
 }
 
 mcp = FastMCP("bend-mcp")
+
 
 # Caché de probes del CLI. Solo se guardan resultados exitosos.
 _PROBE_CACHE: dict[str, Any] = {}
@@ -106,8 +112,12 @@ def _safe_bend_path(name: str) -> Path:
     return path
 
 
-def _kill_tree(proc: "subprocess.Popen[str]") -> None:
-    """Mata el grupo de procesos completo (bend -> hvm -> binario compilado)."""
+def _kill_tree(proc: Any) -> None:
+    """Mata el grupo de procesos completo (bend -> hvm -> binario compilado).
+
+    `proc` es un asyncio.subprocess.Process (o un Popen de subprocess,
+    que también expone .pid/.kill).
+    """
     try:
         if os.name == "posix":
             os.killpg(proc.pid, signal.SIGKILL)
@@ -117,21 +127,18 @@ def _kill_tree(proc: "subprocess.Popen[str]") -> None:
         pass
 
 
-def _run_subprocess(cmd: list[str], timeout: int) -> dict:
+async def _run_subprocess(cmd: list[str], timeout: int) -> dict:
     _ensure_workdir()
     timeout = _clamp_timeout(timeout)
     command = " ".join(cmd)
     start = time.monotonic()
     try:
-        proc = subprocess.Popen(
-            cmd,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
             cwd=str(WORKDIR),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             env=_child_env(),
             start_new_session=(os.name == "posix"),
         )
@@ -157,57 +164,71 @@ def _run_subprocess(cmd: list[str], timeout: int) -> dict:
             "command": command,
         }
 
+    # Lecturas independientes de wait(): si el timeout cancela la espera,
+    # los buffers de los pipes siguen vivos y el stdout parcial no se pierde.
+    out_task = asyncio.create_task(proc.stdout.read())
+    err_task = asyncio.create_task(proc.stderr.read())
+    wait_task = asyncio.create_task(proc.wait())
+
     timed_out = False
     try:
-        out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+        await asyncio.wait_for(asyncio.shield(wait_task), timeout=timeout)
+    except asyncio.TimeoutError:
         timed_out = True
         _kill_tree(proc)
         try:
-            out, err = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            out, err = "", ""
+            await asyncio.wait_for(asyncio.shield(wait_task), timeout=5)
+        except asyncio.TimeoutError:
+            pass
+
+    try:
+        out = await asyncio.wait_for(out_task, timeout=2)
+        err = await asyncio.wait_for(err_task, timeout=2)
+    except asyncio.TimeoutError:
+        out, err = b"", b""
+
     elapsed = time.monotonic() - start
 
-    err = err or ""
+    out_s = (out or b"").decode("utf-8", errors="replace")
+    err_s = (err or b"").decode("utf-8", errors="replace")
     if timed_out:
-        err += f"\n[bend-mcp] Timeout tras {timeout}s (proceso terminado)."
+        err_s += f"\n[bend-mcp] Timeout tras {timeout}s (proceso terminado)."
     return {
         "ok": (not timed_out) and proc.returncode == 0,
         "returncode": None if timed_out else proc.returncode,
-        "stdout": _cap(out or ""),
-        "stderr": _cap(err),
+        "stdout": _cap(out_s),
+        "stderr": _cap(err_s),
         "elapsed_seconds": round(elapsed, 4),
         "command": command,
     }
 
 
-def _bend_version_str() -> str:
+async def _bend_version_str() -> str:
     if "version" in _PROBE_CACHE:
         return str(_PROBE_CACHE["version"])
-    r = _run_subprocess([BEND_BIN, "--version"], timeout=10)
+    r = await _run_subprocess([BEND_BIN, "--version"], timeout=10)
     text = (r["stdout"] or r["stderr"]).strip()
     if r["ok"]:
         _PROBE_CACHE["version"] = text
     return text
 
 
-def _bend_family() -> str:
+async def _bend_family() -> str:
     """Clasifica la familia del binario: 'classic' (0.2.x) o 'unknown'.
 
     El skill y la sintaxis documentada asumen la era clásica (bend-lang 0.2.x).
     'Bend 2' es otro lenguaje con sintaxis distinta; se reporta como unknown.
     """
-    v = _bend_version_str()
+    v = await _bend_version_str()
     return "classic" if re.search(r"\b0\.2\.\d+", v) else "unknown"
 
 
-def _bend_io_flag_supported(subcmd: str = "run-c") -> bool:
+async def _bend_io_flag_supported(subcmd: str = "run-c") -> bool:
     """True si el subcomando indicado acepta --io (no existe en 0.2.38)."""
     key = f"io_flag:{subcmd}"
     if key in _PROBE_CACHE:
         return bool(_PROBE_CACHE[key])
-    r = _run_subprocess([BEND_BIN, subcmd, "--help"], timeout=10)
+    r = await _run_subprocess([BEND_BIN, subcmd, "--help"], timeout=10)
     supported = bool(re.search(r"--io\b", r["stdout"] + r["stderr"]))
     if r["ok"]:
         _PROBE_CACHE[key] = supported
@@ -251,7 +272,7 @@ def _classify_syntax_note(family: str, version: str) -> str | None:
 
 
 @mcp.tool()
-def bend_check_install() -> dict:
+async def bend_check_install() -> dict:
     """Verifica si Bend y HVM están instalados, con sus versiones y compatibilidad."""
     result: dict[str, Any] = {
         "workdir": str(WORKDIR),
@@ -264,20 +285,20 @@ def bend_check_install() -> dict:
         "bend_family": "unknown",
     }
     if result["bend_found"]:
-        result["bend_version"] = _bend_version_str()
-        result["bend_family"] = _bend_family()
-        result["io_flag_supported"] = _bend_io_flag_supported("run-c")
+        result["bend_version"] = await _bend_version_str()
+        result["bend_family"] = await _bend_family()
+        result["io_flag_supported"] = await _bend_io_flag_supported("run-c")
         note = _classify_syntax_note(result["bend_family"], result["bend_version"])
         if note:
             result["syntax_warning"] = note
     if result["hvm_found"]:
-        v = _run_subprocess([HVM_BIN, "--version"], timeout=10)
+        v = await _run_subprocess([HVM_BIN, "--version"], timeout=10)
         result["hvm_version"] = v["stdout"].strip() or v["stderr"].strip()
     return result
 
 
 @mcp.tool()
-def bend_write_program(name: str, code: str, overwrite: bool = False) -> dict:
+async def bend_write_program(name: str, code: str, overwrite: bool = False) -> dict:
     """Escribe código fuente Bend a un archivo .bend dentro del workspace del servidor."""
     path = _safe_bend_path(name)
     data = code.encode("utf-8")
@@ -301,7 +322,7 @@ def bend_write_program(name: str, code: str, overwrite: bool = False) -> dict:
 
 
 @mcp.tool()
-def bend_list_programs() -> dict:
+async def bend_list_programs() -> dict:
     """Lista los programas .bend guardados actualmente en el workspace del servidor."""
     _ensure_workdir()
     files = sorted(p.name for p in WORKDIR.glob("*.bend"))
@@ -309,7 +330,7 @@ def bend_list_programs() -> dict:
 
 
 @mcp.tool()
-def bend_read_program(name: str) -> dict:
+async def bend_read_program(name: str) -> dict:
     """Lee de vuelta el código fuente de un programa .bend ya guardado."""
     path = _safe_bend_path(name)
     if not path.exists():
@@ -318,7 +339,7 @@ def bend_read_program(name: str) -> dict:
 
 
 @mcp.tool()
-def bend_check(name: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
+async def bend_check(name: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     """Valida sintaxis y tipos de un programa .bend SIN ejecutarlo (bend check).
 
     Barato y seguro: úsalo antes de bend_run para depurar errores de compilación.
@@ -326,13 +347,13 @@ def bend_check(name: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     path = _safe_bend_path(name)
     if not path.exists():
         return {"ok": False, "error": f"No existe {path.name} en el workspace."}
-    result = _run_subprocess([BEND_BIN, "check", str(path)], timeout=timeout)
+    result = await _run_subprocess([BEND_BIN, "check", str(path)], timeout=timeout)
     result["program"] = path.name
     return result
 
 
 @mcp.tool()
-def bend_run(
+async def bend_run(
     name: str,
     mode: Literal["rs", "c", "cu"] = "c",
     io: bool = False,
@@ -365,7 +386,7 @@ def bend_run(
 
     io_skipped = None
     if io:
-        if _bend_io_flag_supported(subcmd):
+        if await _bend_io_flag_supported(subcmd):
             cmd.append("--io")
         else:
             io_skipped = (
@@ -376,7 +397,7 @@ def bend_run(
     if args:
         cmd.extend(args)
 
-    result = _run_subprocess(cmd, timeout=timeout)
+    result = await _run_subprocess(cmd, timeout=timeout)
     result["mode"] = used_mode
     result["program"] = path.name
     if mode_fallback:
@@ -387,7 +408,7 @@ def bend_run(
 
 
 @mcp.tool()
-def bend_compile(
+async def bend_compile(
     name: str,
     target: Literal["c", "cu", "auto"] = "auto",
     timeout: int = DEFAULT_TIMEOUT,
@@ -412,7 +433,7 @@ def bend_compile(
 
     subcmd = "gen-c" if used_target == "c" else "gen-cu"
     cmd = [BEND_BIN, subcmd, str(path)]
-    result = _run_subprocess(cmd, timeout=timeout)
+    result = await _run_subprocess(cmd, timeout=timeout)
     result["target"] = used_target
     result["target_requested"] = target
     result["program"] = path.name
@@ -422,7 +443,7 @@ def bend_compile(
 
 
 @mcp.tool()
-def bend_benchmark(
+async def bend_benchmark(
     name: str,
     runs_per_mode: int = 3,
     timeout_per_run: int = DEFAULT_TIMEOUT,
@@ -455,7 +476,7 @@ def bend_benchmark(
             if time.monotonic() > deadline:
                 budget_exceeded = True
                 break
-            r = bend_run(name=name, mode=m, timeout=timeout_per_run)
+            r = await bend_run(name=name, mode=m, timeout=timeout_per_run)
             last = r
             if not r.get("ok"):
                 failed = True
