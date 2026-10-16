@@ -182,6 +182,11 @@ estable que un solo timing.
     (`def main(x, y):`). Con `def main(x: u24, y: u24)` los args de CLI
     fallan con `Type Error: Expected function type`. Los args son
     expresiones: `"+5"` o `"5"` (ver `examples/add_args.bend`).
+13. **El cuerpo de un `def` necesita `return` explícito**: la última
+    expresión a secas NO se devuelve en 0.2.38 (`def main() -> u24:
+    1 + 2 + 3` falla el check). Escribir `return 1 + 2 + 3`. (Contraste
+    con Bend 2, donde la última expresión SÍ es el valor de retorno —
+    verificado con el smoke en ambos, 2026-10-16.)
 
 ## Errores y recuperación
 
