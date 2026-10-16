@@ -35,12 +35,14 @@ def main() -> int:
 
     env = dict(os.environ)
     if family == "v2":
-        env["BEND_MCP_BEND_BIN"] = os.path.expanduser("~/.bend/bin/bend")
+        # Respeta BEND_MCP_BEND_BIN si el entorno ya lo define.
+        env.setdefault("BEND_MCP_BEND_BIN", os.path.expanduser("~/.bend/bin/bend"))
 
     proc = subprocess.Popen(
         [SERVER], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, env=env, text=True, bufsize=1)
     results: dict = {}
+    stderr_tail: list[str] = []
 
     def reader():
         for line in proc.stdout:
@@ -54,7 +56,15 @@ def main() -> int:
             if "id" in msg:
                 results[msg["id"]] = msg
 
+    def drain_stderr():
+        # Vacía stderr en un hilo: con PIPE sin leer, un servidor verboso
+        # llenaría el buffer y bloquearía todo.
+        for line in proc.stderr:
+            stderr_tail.append(line.rstrip())
+            del stderr_tail[:-20]  # conserva las últimas 20 líneas
+
     threading.Thread(target=reader, daemon=True).start()
+    threading.Thread(target=drain_stderr, daemon=True).start()
 
     def rpc(method, params=None, timeout=90):
         rpc.counter += 1
@@ -65,6 +75,8 @@ def main() -> int:
         proc.stdin.flush()
         deadline = time.time() + timeout
         while rid not in results and time.time() < deadline:
+            if proc.poll() is not None:  # servidor muerto: no esperar 90 s
+                break
             time.sleep(0.05)
         return results.get(rid)
 
@@ -116,11 +128,14 @@ def main() -> int:
     d = call("bend_check", {"name": NAME})
     report("check", bool(d.get("ok")), f"rc={d.get('returncode')}")
 
-    run_args = {"name": NAME}
-    run_args["mode"] = "c" if family == "classic" else "c"
+    # El runtime clásico (run-rs/run-c) imprime "Result: <valor>" en stdout;
+    # el script lo quita para comparar. Bend 2 imprime el valor a secas ("6").
+    run_args: dict = {"name": NAME}
+    if family == "classic":
+        run_args["mode"] = "c"  # en v2 el modo no aplica; no se pasa
     d = call("bend_run", run_args)
     stdout = (d.get("stdout") or "").strip()
-    if stdout.startswith("Result: "):  # normalización del server en classic
+    if stdout.startswith("Result: "):
         stdout = stdout[len("Result: "):].strip()
     report("run", bool(d.get("ok")) and stdout == EXPECT_STDOUT,
            f"stdout={stdout!r}")
@@ -142,7 +157,15 @@ def main() -> int:
     report("benchmark", bool(good), f"{detail}")
 
     proc.stdin.close()
-    proc.wait(timeout=10)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    if not ok_all and stderr_tail:
+        print("stderr del servidor (últimas líneas):")
+        for line in stderr_tail:
+            print(f"  {line}")
     print(f"\n{'OK' if ok_all else 'FALLO'}: family={family}")
     return 0 if ok_all else 1
 
