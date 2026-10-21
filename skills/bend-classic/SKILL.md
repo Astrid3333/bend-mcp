@@ -1,17 +1,6 @@
 ---
 name: bend-classic
-description: >-
-  Use when the user wants to write, run, check, compile or benchmark programs
-  in the classic Bend parallel programming language (bend-lang 0.2.x,
-  HigherOrderCO, HVM2, interaction combinators) — NOT Bend 2 — or asks about
-  massively parallel functional code, GPU CPU comparison of classic Bend
-  programs, or the bend-mcp MCP server tools (bend_check_install,
-  bend_write_program, bend_check, bend_run, bend_compile, bend_benchmark,
-  bend_list_programs, bend_read_program). Úsala cuando el usuario pide crear,
-  ejecutar o comparar programas en el lenguaje Bend clásico (0.2.x) o usar el
-  servidor MCP bend-mcp. Incluye 13 programas reales verificados contra una
-  segunda herramienta (Octave) y el CLI de Bend 0.2.38.
-license: MIT
+description: Use when the user wants to write, run, check, compile or benchmark programs in the classic Bend parallel programming language (bend-lang 0.2.x, HigherOrderCO, HVM2, interaction combinators) — NOT Bend 2 — or asks about massively parallel functional code, GPU CPU comparison of classic Bend programs, or the bend-mcp MCP server tools (bend_check_install, bend_write_program, bend_check, bend_run, bend_compile, bend_benchmark, bend_list_programs, bend_read_program). Úsala cuando el usuario pide crear, ejecutar o comparar programas en el lenguaje Bend clásico (0.2.x) o usar el servidor MCP bend-mcp. Incluye 13 programas reales verificados contra una segunda herramienta (Octave) y el CLI de Bend 0.2.38.
 ---
 
 # bend-classic — lenguaje Bend clásico vía MCP (bend-mcp)

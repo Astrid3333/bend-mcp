@@ -1,16 +1,6 @@
 ---
 name: bend2
-description: >-
-  Use when the user wants to write, check or run programs in **Bend 2**
-  (bendlang/bend 2.x: typed, proofs, IO monad, `import Base`, `law`,
-  `--verdict`) — NOT the classic bend-lang 0.2.x — or asks about
-  law-driven development, Bend proofs, Bend 2 syntax, or the `bend` 2.x
-  CLI (`bend file.bend`, `--check-only`, `--verdict`, `-o`). Úsala cuando
-  el usuario pide programar en Bend 2, verificar proofs/leyes, o usar el
-  binario de `~/.bend/bin/bend` (2.x). Sintaxis verificada contra
-  bend 2.0.37. No mezclar con sintaxis Bend clásica 0.2.x (skill
-  bend-classic).
-license: MIT
+description: Use when the user wants to write, check or run programs in **Bend 2** (bendlang/bend 2.x: typed, proofs, IO monad, `import Base`, `law`, `--verdict`) — NOT the classic bend-lang 0.2.x — or asks about law-driven development, Bend proofs, Bend 2 syntax, or the `bend` 2.x CLI (`bend file.bend`, `--check-only`, `--verdict`, `-o`). Úsala cuando el usuario pide programar en Bend 2, verificar proofs/leyes, o usar el binario de `~/.bend/bin/bend` (2.x). Sintaxis verificada contra bend 2.0.37. No mezclar con sintaxis Bend clásica 0.2.x (skill bend-classic).
 ---
 
 # bend2 — lenguaje Bend 2 (bendlang/bend 2.x)
